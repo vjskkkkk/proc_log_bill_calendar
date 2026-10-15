@@ -1,0 +1,59 @@
+{
+  "name": "koochie-calendar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Koochie Calendar — procurement, logistics and billing planner on Cloudflare Workers",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy --config dist/koochie_calendar/wrangler.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate:local": "wrangler d1 migrations apply koochie-calendar --local",
+    "db:migrate:remote": "wrangler d1 migrations apply koochie-calendar --remote",
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "screenshots": "tsx scripts/screenshots.ts",
+    "brand:copy": "tsx scripts/copy-brand.ts",
+    "predev": "npm run brand:copy",
+    "prebuild": "npm run brand:copy",
+    "secret:session": "wrangler secret put SESSION_SECRET --config dist/koochie_calendar/wrangler.json"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.102.8",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.13.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router-dom": "7.18.3",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.54.5",
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260907.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "26.5.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "playwright-core": "1.63.0",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.129.1"
+  },
+  "allowScripts": {
+    "workerd@1.20260815.1": true,
+    "workerd@1.20260907.1": true,
+    "esbuild@0.28.1": true
+  }
+}

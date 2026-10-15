@@ -1,0 +1,96 @@
+@import 'tailwindcss';
+
+/* Dark mode is a class on <html> (set by web/src/lib/theme.ts; bootstrapped inline in index.html to avoid a flash). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-ink: #231f20;
+  --color-brand-grey: #717272;
+  --color-brand-purple: #7d51a0;
+  --color-brand-green: #a3cd39;
+  --color-brand-red: #ea2227;
+  --color-brand-orange: #f26f33;
+  --color-brand-yellow: #ffca07;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
+
+  /* Semantic surface/text tokens — light values here, dark values overridden on html.dark below. */
+  --color-canvas: #f4f4f5;
+  --color-surface: #ffffff;
+  --color-surface-2: #fafafa;
+  --color-surface-3: #f0f0f1;
+  --color-line: #e5e5e5;
+  --color-line-strong: #d4d4d4;
+  --color-fg: #231f20;
+  --color-muted: #737373;
+  --color-muted-strong: #525252;
+  --color-ok: #15803d;
+  --color-warn-fg: #713f12;
+  --color-header: #231f20;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-canvas: #101114;
+  --color-surface: #1a1b1f;
+  --color-surface-2: #1f2025;
+  --color-surface-3: #26282e;
+  --color-line: #2e3037;
+  --color-line-strong: #3c3f47;
+  --color-fg: #e9e9ec;
+  --color-muted: #9a9ca4;
+  --color-muted-strong: #b8bac2;
+  --color-ok: #4ade80;
+  --color-warn-fg: #fde68a;
+  --color-header: #15161a;
+}
+
+html { color-scheme: light; }
+body { @apply bg-canvas text-fg antialiased; }
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold whitespace-nowrap select-none min-h-10
+    transition-[background-color,border-color,color,box-shadow,transform] duration-150
+    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-purple/50 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
+    active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+}
+
+@layer components {
+  .btn-primary { @apply btn bg-brand-purple text-white shadow-sm shadow-brand-purple/30 hover:bg-[#6a4389] hover:shadow-md hover:shadow-brand-purple/30; }
+  .btn-secondary { @apply btn bg-surface text-fg border border-line-strong shadow-sm hover:bg-surface-3 hover:border-muted; }
+  .btn-danger { @apply btn bg-brand-red text-white shadow-sm shadow-brand-red/30 hover:bg-[#c81c20]; }
+  .btn-ghost { @apply btn bg-transparent text-muted-strong hover:bg-surface-3 hover:text-fg; }
+  .input { @apply block w-full rounded-lg border border-line-strong bg-surface text-fg placeholder:text-muted px-3 py-2 text-base shadow-xs transition-[border-color,box-shadow] focus:outline-none focus:ring-2 focus:ring-brand-purple/40 focus:border-brand-purple disabled:bg-surface-2 disabled:text-muted-strong min-h-11; }
+  .label { @apply block text-sm font-medium text-muted-strong mb-1; }
+  .card { @apply rounded-xl bg-surface shadow-sm border border-line p-4; }
+}
+
+/* ---- Koochie Calendar additions ---- */
+@theme {
+  /* Category colours (shared/categories.ts holds the same values for inline styles). */
+  --color-cat-material: #7d51a0;
+  --color-cat-equipment: #f26f33;
+  --color-cat-logistics: #ffca07;
+  --color-cat-billing: #a3cd39;
+}
+
+@layer components {
+  .chip { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap; }
+  .seg { @apply inline-flex rounded-lg border border-line-strong bg-surface p-0.5 shadow-xs; }
+  .seg > button { @apply rounded-md px-3 py-1 text-sm font-medium text-muted-strong transition-colors hover:text-fg; }
+  .seg > button[aria-pressed='true'] { @apply bg-fg text-surface shadow-sm; }
+  .cell-input { @apply w-full h-full bg-transparent px-2 text-sm text-fg outline-none placeholder:text-muted focus:bg-surface focus:ring-2 focus:ring-inset focus:ring-brand-purple/50 rounded-sm disabled:cursor-default; }
+}
+
+/* Gantt: rows flash when opened from Today. */
+@keyframes row-flash {
+  0%, 40% { background-color: color-mix(in srgb, var(--color-brand-yellow) 35%, transparent); }
+  100% { background-color: transparent; }
+}
+.row-flash { animation: row-flash 1.6s ease-out; }
+
+@media print {
+  header, .no-print { display: none !important; }
+  body { background: white; }
+  main { max-width: none !important; padding: 0 !important; }
+  .card { box-shadow: none; break-inside: avoid; }
+}

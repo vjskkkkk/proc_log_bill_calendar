@@ -1,0 +1,11 @@
+node_modules/
+dist/
+web/dist/
+web/public/brand/
+.wrangler/
+.dev.vars
+.env*
+tmp/
+*.log
+.DS_Store
+worker-configuration.d.ts

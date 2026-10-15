@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "koochie-calendar",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "koochie-calendar",
+      "database_id": "9b5c14d4-313c-4326-8359-f56e4f4e6d6b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Project picker: read issued BOQ quotes and CRM leads (docs/PLAN.md §7). This app never writes to either.
+  "services": [
+    { "binding": "BOQ", "service": "koochie-boq" },
+    { "binding": "CRM", "service": "yourcrm" }
+  ],
+  "vars": { "APP_NAME": "Koochie Calendar", "COOKIE_SECURE": "auto" },
+  "observability": { "enabled": true }
+  // Secrets (dashboard or `wrangler secret put`): SESSION_SECRET, INTEGRATION_SECRET (same value as koochie-boq and
+  // yourcrm). Local dev: .dev.vars. Deploy: `npm run deploy` (vite build + wrangler deploy with the generated
+  // dist/koochie_calendar/wrangler.json), or Workers Builds on push to main.
+}
