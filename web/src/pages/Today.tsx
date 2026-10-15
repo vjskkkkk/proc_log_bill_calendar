@@ -225,7 +225,7 @@ export default function TodayPage({ user }: { user: UserPublic }) {
                             {scope === 'all' && item.owner && <Avatar name={people.name(item.owner)} muted={item.inheritedOwner} size="xs" />}
                             <Link
                               to={`/planner?focus=${t.id}`}
-                              className="invisible shrink-0 text-xs text-brand-purple hover:underline group-hover:visible no-print"
+                              className="shrink-0 text-xs text-brand-purple opacity-0 hover:underline group-hover:opacity-100 focus:opacity-100 no-print"
                               title="Show in the planner"
                             >
                               Planner ↗

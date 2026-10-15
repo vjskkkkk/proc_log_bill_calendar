@@ -47,7 +47,8 @@ Every push to `main` deploys through Cloudflare **Workers Builds** (Worker → S
 - **Secrets** (Worker → Settings → Variables and Secrets): `SESSION_SECRET` (long random string) and
   `INTEGRATION_SECRET` (the same value as on `koochie-boq` and `yourcrm`; it authenticates the project picker's calls).
 - **Migrations are not applied by the build.** When a change adds `migrations/NNNN_*.sql`, run
-  `npm run db:migrate:remote` before (or right after) pushing it.
+  `npm run db:migrate:remote` before (or right after) pushing it. `0001`–`0003` are already applied to production
+  (2026-10-15, recorded in `d1_migrations`, so wrangler skips them).
 - **First run**: the app shows **Create the first admin**; that account becomes `admin`. Later users are created in
   Users with a temporary password and must change it on first sign-in.
 - **Project picker**: BOQ quotes come from `GET /api/integration/planner/quotes` on `koochie-boq` (added for this app);

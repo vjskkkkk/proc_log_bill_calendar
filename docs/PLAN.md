@@ -1,6 +1,6 @@
 # Koochie Calendar — specification
 
-Status: v1 build started 2026-10-15. Audience: whoever (human or Claude) works on this repo next.
+Status: v1 built 2026-10-15 (all screens, API, tests); deployment waits on the owner steps in “Deployment”. Audience: whoever (human or Claude) works on this repo next.
 
 ## Context
 The team needs one shared planner for back-office work across current projects:
@@ -267,34 +267,35 @@ How the list is laid out:
 13. Polish: print, dark mode, a screenshots script, docs.
 14. Deploy and smoke test (next section).
 
-## Deployment and what is needed from the user
-**I can do these myself through the Cloudflare connector. No API token is needed.**
-- Create D1 `koochie-calendar` (location hint `apac`) and put its id in `wrangler.jsonc`.
-- After the schema settles at step 5, apply each migration with `d1_database_query`:
-  - Create `d1_migrations` with the same schema as on the live BOQ database.
-  - Run each file's SQL and insert its file name (e.g. `0001_init.sql`) in the same call.
-  - Verify the result.
-  - This keeps `npm run db:migrate:remote` consistent afterwards.
+## Deployment
 
-**The user does these. They are the only "credentials" required:**
-1. **Merge the BOQ branch into `main`.** Workers Builds then deploys the new quotes endpoint.
-2. **Approve creating `main` in the calendar repo** from the working branch, and make it the default branch. The repo currently has no `main`.
-3. **Connect the repo in the Cloudflare dashboard:** Workers & Pages → Create → Import a repository.
-   - Repo: `vjskkkkk/proc_log_bill_calendar`. The Cloudflare GitHub app may need access to it.
-   - Worker name: `koochie-calendar`.
-   - Production branch: `main`.
-   - Build command: `npm run build`.
-   - Deploy command: `npx wrangler deploy --config dist/koochie_calendar/wrangler.json`.
-   - Turn **off** non-production branch builds, because previews would share the production database.
-4. **Add two secrets** under Worker → Settings → Variables and Secrets:
-   - `SESSION_SECRET`: a new random value of 40+ characters, e.g. from `openssl rand -base64 48`.
-   - `INTEGRATION_SECRET`: the **same value** already set on `koochie-boq` and `yourcrm`. The dashboard cannot show it again. If the value is lost, set one new value on all three Workers together.
-5. **Open the app straight away:** go to `https://koochie-calendar.vikramjit.workers.dev`, choose **Create the first admin**, then add the team under Users with temporary passwords. Until the first admin is created, whoever opens the URL first becomes admin.
+**Cloudflare resources** (account of BOQ Maker, workers.dev subdomain `vikramjit`):
+- D1 `koochie-calendar`, id `9b5c14d4-313c-4326-8359-f56e4f4e6d6b` (location hint APAC), created 2026-10-15 through the
+  Cloudflare connector; its id is in `wrangler.jsonc`.
+- Worker `koochie-calendar` → https://koochie-calendar.vikramjit.workers.dev, built by Workers Builds from `main`.
 
-**Then I run a smoke test:**
-- The Worker's bindings are present.
-- `/api/health` responds OK.
-- The BOQ tab lists issued quotes, and the CRM tab lists leads.
+**Migrations** are applied by hand (`npm run db:migrate:remote`), never by the build. The first three were applied on
+2026-10-15 through the connector's D1 query tool, each file's SQL together with its row in wrangler's own
+`d1_migrations` table (`id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT
+CURRENT_TIMESTAMP NOT NULL`, name = file name with `.sql`), so `wrangler d1 migrations apply --remote` stays in step.
+
+**One-time setup by the owner**
+1. Merge the BOQ Maker branch that adds `GET /api/integration/planner/quotes` (BOQ PLAN §11) into its `main`.
+   Until then the "From a BOQ quote" tab shows "BOQ Maker answered HTTP 404".
+2. Create `main` in this repo from the working branch and make it the default branch.
+3. Cloudflare dashboard → Workers & Pages → Create → **Import a repository** → `vjskkkkk/proc_log_bill_calendar`
+   (grant the Cloudflare GitHub app access to it if asked). Worker name `koochie-calendar`; production branch
+   `main`; build command `npm run build`; deploy command
+   `npx wrangler deploy --config dist/koochie_calendar/wrangler.json`; root `/`. Turn **off** builds for
+   non-production branches (preview versions would share the production D1).
+4. Worker → Settings → Variables and Secrets: `SESSION_SECRET` (new random value, 40+ characters, e.g.
+   `openssl rand -base64 48`) and `INTEGRATION_SECRET` (the **same value** as on `koochie-boq` and `yourcrm`; if it
+   is lost, set one new value on all three Workers together).
+5. Open the URL straight away and **Create the first admin** (until then, whoever opens it first becomes admin);
+   then add the team under Users with temporary passwords.
+
+**Smoke test after the first deploy:** `/api/health` → `{ ok: true, db: "ok" }`; New project → the BOQ tab lists
+issued quotes and the CRM tab lists leads.
 
 ## Verification
 - **Unit tests** (`shared/schedule/__tests__`):
