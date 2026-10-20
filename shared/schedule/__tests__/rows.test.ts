@@ -33,6 +33,17 @@ describe('buildRows', () => {
     expect(pa?.kind === 'project' && pa.span).toEqual({ start: '2026-10-10', end: '2026-10-25' });
     expect(pa?.kind === 'project' && pa.overdueCount).toBe(1);
   });
+  it('groups a project into category sections, in category order, collapsible', () => {
+    const mixed = [...tasks, T({ id: 'a3', projectId: 'a', title: 'Steel', category: 'material', startDate: '2026-11-01', endDate: '2026-11-02', sortOrder: 3 })];
+    const rows = buildRows(projects, mixed, { today, sections: true, addRows: true });
+    expect(keys(rows)).toEqual(['p:a', 'c:a:material', 't:a1', 't:a3', 'c:a:logistics', 't:a2', 's:a2s1', 's:a2s2', 'a:a2', 'a:a', 'p:b', 'c:b:billing', 't:b1', 'a:b']);
+    const mat = rows.find((r) => r.key === 'c:a:material');
+    expect(mat?.kind === 'section' && [mat.span, mat.taskCount, mat.overdueCount]).toEqual([{ start: '2026-10-10', end: '2026-11-02' }, 2, 1]);
+    const folded = buildRows(projects, mixed, { today, sections: true, collapsedSections: new Set(['a:logistics']) });
+    expect(keys(folded)).toEqual(['p:a', 'c:a:material', 't:a1', 't:a3', 'c:a:logistics', 'p:b', 'c:b:billing', 't:b1']);
+    // Filters drop sections left empty.
+    expect(keys(buildRows(projects, mixed, { today, sections: true, filters: { categories: ['logistics'] } }))).toEqual(['p:a', 'c:a:logistics', 't:a2', 's:a2s1', 's:a2s2']);
+  });
   it('collapses projects and tasks', () => {
     const rows = buildRows(projects, tasks, { today, collapsedProjects: new Set(['b']), collapsedTasks: new Set(['a2']) });
     expect(keys(rows)).toEqual(['p:a', 't:a1', 't:a2', 'p:b']);

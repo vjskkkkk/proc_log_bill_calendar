@@ -10,7 +10,6 @@ import { Avatar, CategoryDot, CategoryPill, Seg } from '../components/ui';
 import { BOQ_URL } from '../components/Shell';
 import { usePeople } from '../lib/people';
 import { readPref, writePref } from '../lib/prefs';
-import { projectColorMap } from '../lib/projectColors';
 
 type Layout = 'cards' | 'list';
 
@@ -75,7 +74,6 @@ export default function TodayPage({ user }: { user: UserPublic }) {
   }, [plan.data, date, today, user.id, scope]);
 
   const tasksById = useMemo(() => new Map((plan.data?.tasks ?? []).map((t) => [t.id, t])), [plan.data]);
-  const projectColors = useMemo(() => projectColorMap((plan.data?.projects ?? []).map((p) => p.id)), [plan.data?.projects]);
 
   // Each project's groups with done items dropped when "Hide done" is on; projects left empty are skipped.
   const shown = useMemo(
@@ -193,23 +191,27 @@ export default function TodayPage({ user }: { user: UserPublic }) {
               <tr className="col-head">
                 <th className="w-10 px-3 py-2" aria-label="Done" />
                 <th className="px-2 py-2">Task</th>
-                <th className="px-2 py-2">Project</th>
                 <th className="px-2 py-2">Category</th>
                 <th className="px-2 py-2">When</th>
                 {scope === 'all' && <th className="px-2 py-2">Owner</th>}
                 <th className="w-20 px-2 py-2 no-print" />
               </tr>
             </thead>
-            <tbody>
-              {shown.flatMap(({ project: full, groups }) =>
-                groups.flatMap((g) =>
+            {shown.map(({ project: full, groups }) => (
+              <tbody key={full.id} className="border-t-2 border-t-fg/70">
+                <tr className="bg-surface-3">
+                  <td colSpan={scope === 'all' ? 6 : 5} className="px-3 py-1.5">
+                    <span className="font-bold">{full.name}</span>
+                    {(full.client || full.location) && <span className="ml-2 text-xs text-muted">{[full.client, full.location].filter(Boolean).join(', ')}</span>}
+                  </td>
+                </tr>
+                {groups.flatMap((g) =>
                   g.items.map((item) => {
                     const t = tasksById.get(item.task.id) ?? item.task;
                     const st = statusText(item, date);
-                    const pc = projectColors.get(full.id);
                     return (
                       <tr key={t.id} className="group border-b border-line last:border-b-0 hover:bg-surface-2">
-                        <td className="px-3 py-1.5 align-top" style={{ boxShadow: `inset 4px 0 0 ${pc}` }}>
+                        <td className="px-3 py-1.5 align-top">
                           <input
                             type="checkbox"
                             className="mt-0.5 h-4 w-4 accent-brand-green"
@@ -220,11 +222,10 @@ export default function TodayPage({ user }: { user: UserPublic }) {
                           />
                         </td>
                         <td className="px-2 py-1.5">
-                          {g.isHeader && <span className="text-muted">{g.task.title} › </span>}
-                          <span className={t.done ? 'text-muted line-through' : 'font-medium'}>{t.title}</span>
-                        </td>
-                        <td className="max-w-56 truncate px-2 py-1.5" title={full.name}>
-                          {full.name}
+                          <span className="pl-4">
+                            {g.isHeader && <span className="text-muted">{g.task.title} › </span>}
+                            <span className={t.done ? 'text-muted line-through' : 'font-medium'}>{t.title}</span>
+                          </span>
                         </td>
                         <td className="px-2 py-1.5">
                           <CategoryPill category={t.category} />
@@ -241,9 +242,9 @@ export default function TodayPage({ user }: { user: UserPublic }) {
                       </tr>
                     );
                   }),
-                ),
-              )}
-            </tbody>
+                )}
+              </tbody>
+            ))}
           </table>
         </div>
       )}
@@ -251,7 +252,7 @@ export default function TodayPage({ user }: { user: UserPublic }) {
       <div className={`grid items-start gap-4 xl:grid-cols-2 ${layout === 'list' ? 'hidden' : ''}`}>
         {shown.map(({ project: full, groups: visible }) => {
           return (
-            <section key={full.id} className="card overflow-hidden border-l-4 p-0" style={{ borderLeftColor: projectColors.get(full.id) }}>
+            <section key={full.id} className="card overflow-hidden border-t-2 border-t-fg/70 p-0">
               <header className="flex items-start gap-3 border-b border-line bg-surface-2 px-4 py-3">
                 <div className="min-w-0">
                   <h2 className="truncate font-semibold">{full.name}</h2>

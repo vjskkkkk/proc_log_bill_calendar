@@ -1,8 +1,8 @@
 import { memo } from 'react';
 import { CATEGORY_COLOR, isCategory } from '@shared/categories';
 import type { CatalogItemDto, TaskDto } from '@shared/schemas/plan';
+import { CATEGORY_LABEL } from '@shared/categories';
 import { formatShort } from '@shared/schedule/dates';
-import { tint } from '../../lib/projectColors';
 import { dependencyCandidates } from '@shared/schedule/deps';
 import type { Span } from '@shared/schedule/spans';
 import { barGeometry } from '@shared/schedule/timeline';
@@ -123,7 +123,9 @@ function Lane({ row, preview }: { row: Row; preview: RowPreview | undefined }) {
   };
   let content: React.ReactNode = null;
   if (row.kind === 'project') {
-    content = row.span && <Bracket span={row.span} tone="ink" top={12} color={g.projectColors.get(row.project.id)} />;
+    content = row.span && <Bracket span={row.span} tone="ink" top={12} />;
+  } else if (row.kind === 'section') {
+    content = row.span && <Bracket span={row.span} tone="muted" top={14} />;
   } else if (row.kind === 'task') {
     if (row.hasChildren) {
       const own = preview?.span ?? row.own;
@@ -143,17 +145,10 @@ function Lane({ row, preview }: { row: Row; preview: RowPreview | undefined }) {
     else if (row.inherited) content = <LeafBar row={row} task={row.task} span={row.inherited} overdue={row.overdue} ghost />;
   }
   const empty = (row.kind === 'task' && !row.hasChildren && !row.own) || (row.kind === 'subtask' && !row.own);
-  const pc = g.projectColors.get(row.project.id) ?? 'var(--color-muted)';
-  const laneBg =
-    row.kind === 'project'
-      ? `color-mix(in srgb, ${pc} 9%, transparent)`
-      : row.kind === 'task' || row.kind === 'subtask'
-        ? `color-mix(in srgb, ${isCategory(row.task.category) ? CATEGORY_COLOR[row.task.category].bg : '#717272'} ${row.kind === 'task' ? 6 : 4}%, transparent)`
-        : undefined;
   return (
     <div
-      className={`relative h-full ${empty && g.editable ? 'cursor-crosshair' : ''}`}
-      style={{ width: g.laneW, backgroundColor: laneBg }}
+      className={`relative h-full ${row.kind === 'project' ? 'bg-fg/[0.04]' : ''} ${empty && g.editable ? 'cursor-crosshair' : ''}`}
+      style={{ width: g.laneW }}
       onPointerDown={onLaneDown}
       title={empty && g.editable && !(row.kind === 'subtask' && row.inherited) ? 'Drag across the days to set dates' : undefined}
     >
@@ -193,6 +188,20 @@ function Chevron({ open, onClick, label }: { open: boolean; onClick: () => void;
   );
 }
 
+/**
+ * One level of the tree's guide lines (18 px): `pass` carries an outer level's line past this row, `tee` branches
+ * into this row, `end` is the last branch, `stub` is the dashed branch of an add row.
+ */
+function Rail({ kind }: { kind: 'pass' | 'tee' | 'end' | 'stub' }) {
+  const line = kind === 'stub' ? 'border-dashed border-line-strong' : 'border-line-strong';
+  return (
+    <span className="relative h-full w-[18px] shrink-0" aria-hidden="true">
+      <span className={`absolute left-[8px] top-0 border-l ${line} ${kind === 'end' || kind === 'stub' ? 'h-1/2' : 'h-full'}`} />
+      {kind !== 'pass' && <span className={`absolute left-[8px] top-1/2 w-[8px] border-t ${line}`} />}
+    </span>
+  );
+}
+
 function stepParentCatalogId(row: Row): string | null {
   if (row.kind === 'subtask') return row.parent.catalogItemId;
   if (row.kind === 'add' && row.parent) return row.parent.catalogItemId;
@@ -211,12 +220,13 @@ function TaskCells({ row }: { row: Extract<Row, { kind: 'task' | 'subtask' }> })
   const cells: Record<ColKey, React.ReactNode> = {
     grip: null,
     title: (
-      <div className={`flex h-full min-w-0 items-center ${isSub ? 'pl-5' : ''}`}>
-        {isSub && <span className={`mr-1 h-full w-3 shrink-0 border-l border-line-strong ${row.isLast ? 'h-1/2 self-start border-b rounded-bl' : ''}`} aria-hidden="true" />}
+      <div className="flex h-full min-w-0 items-center">
+        <Rail kind={isSub ? 'pass' : 'tee'} />
+        {isSub && <Rail kind={row.isLast ? 'end' : 'tee'} />}
         {row.kind === 'task' && row.hasChildren ? (
           <Chevron open={!row.collapsed} onClick={() => a.toggleTask(t.id)} label={row.collapsed ? 'Show sub-tasks' : 'Hide sub-tasks'} />
         ) : (
-          !isSub && <span className="w-5" />
+          !isSub && <span className="w-5 shrink-0" />
         )}
         <TitleCombobox
           value={t.title}
@@ -362,7 +372,7 @@ function ProjectCells({ row }: { row: Extract<Row, { kind: 'project' }> }) {
         <Chevron open={!row.collapsed} onClick={() => g.actions.toggleProject(p.id)} label={row.collapsed ? 'Expand project' : 'Collapse project'} />
       </div>
       <div className="flex min-w-0 items-center gap-2 pr-2" style={{ width: rest }}>
-        <button type="button" tabIndex={-1} className="truncate text-left text-sm font-semibold hover:text-brand-purple" onClick={() => g.actions.toggleProject(p.id)} title={p.notes || p.name}>
+        <button type="button" tabIndex={-1} className="truncate text-left text-[15px] font-bold hover:text-brand-purple" onClick={() => g.actions.toggleProject(p.id)} title={p.notes || p.name}>
           {p.name}
         </button>
         {p.status === 'on_hold' && <span className="chip bg-brand-yellow/30 text-warn-fg">On hold</span>}
@@ -408,6 +418,31 @@ function ProjectCells({ row }: { row: Extract<Row, { kind: 'project' }> }) {
   );
 }
 
+/** A category section of a project: Material procurement, Installation … */
+function SectionCells({ row }: { row: Extract<Row, { kind: 'section' }> }) {
+  const g = useGantt();
+  const before = g.cols[0]!.w;
+  const rest = g.leftW - before;
+  const swatch = isCategory(row.category) ? CATEGORY_COLOR[row.category].bg : '#717272';
+  return (
+    <>
+      <div className="shrink-0" style={{ width: before }} />
+      <div className="flex h-full min-w-0 items-center gap-2 pr-2" style={{ width: rest }}>
+        <Chevron open={!row.collapsed} onClick={() => g.actions.toggleSection(row.project.id, row.category)} label={row.collapsed ? 'Show this section' : 'Hide this section'} />
+        <span className="inline-block h-2.5 w-2.5 shrink-0" style={{ backgroundColor: swatch }} aria-hidden="true" />
+        <button type="button" tabIndex={-1} className="truncate text-left text-[13px] font-semibold text-fg" onClick={() => g.actions.toggleSection(row.project.id, row.category)}>
+          {isCategory(row.category) ? CATEGORY_LABEL[row.category] : row.category}
+        </button>
+        <span className="shrink-0 text-xs text-muted tabular-nums">
+          {row.taskCount} {row.taskCount === 1 ? 'task' : 'tasks'}
+          {row.span ? `, ${formatShort(row.span.start)} – ${formatShort(row.span.end)}` : ''}
+        </span>
+        {row.overdueCount > 0 && <span className="shrink-0 text-xs font-semibold text-brand-red">{row.overdueCount} overdue</span>}
+      </div>
+    </>
+  );
+}
+
 function AddCells({ row }: { row: Extract<Row, { kind: 'add' }> }) {
   const g = useGantt();
   const isSub = !!row.parent;
@@ -435,8 +470,15 @@ function AddCells({ row }: { row: Extract<Row, { kind: 'add' }> }) {
   return (
     <>
       <div className="shrink-0" style={{ width: before }} />
-      <div className={`flex h-full min-w-0 items-center ${isSub ? 'pl-5' : 'pl-5'}`} style={{ width: title.w }}>
-        {isSub && <span className="mr-1 h-1/2 w-3 shrink-0 self-start rounded-bl border-b border-l border-dashed border-line-strong" aria-hidden="true" />}
+      <div className="flex h-full min-w-0 items-center" style={{ width: title.w }}>
+        {isSub ? (
+          <>
+            <Rail kind="pass" />
+            <Rail kind="stub" />
+          </>
+        ) : (
+          <span className="w-1 shrink-0" />
+        )}
         <TitleCombobox
           value=""
           level={isSub ? 'subtask' : 'task'}
@@ -460,16 +502,17 @@ function AddCells({ row }: { row: Extract<Row, { kind: 'add' }> }) {
 
 export const GanttRowView = memo(function GanttRowView({ row, top, preview, flash }: { row: Row; top: number; preview: RowPreview | undefined; flash: boolean }) {
   const g = useGantt();
-  const pc = g.projectColors.get(row.project.id) ?? '#717272';
-  const cat = (row.kind === 'task' || row.kind === 'subtask') && isCategory(row.task.category) ? CATEGORY_COLOR[row.task.category].bg : null;
-  // Opaque tints (these cells stay put while the chart scrolls under them).
-  const bg = row.kind === 'project' ? tint(pc, 16) : cat ? tint(cat, row.kind === 'task' ? 10 : 6) : 'var(--color-surface)';
+  // Structure, not colour: a project is a grey band ruled off above; a section a lighter band; tasks plain.
+  const bg = row.kind === 'project' ? 'var(--color-surface-3)' : row.kind === 'section' ? 'var(--color-surface-2)' : 'var(--color-surface)';
   return (
-    <div className={`group absolute left-0 flex border-b ${row.kind === 'project' ? 'border-line-strong' : 'border-line'} ${flash ? 'row-flash' : ''}`} style={{ top, height: ROW_H, width: g.leftW + g.laneW }} data-row={row.key}>
+    <div
+      className={`group absolute left-0 flex border-b border-line ${row.kind === 'project' ? 'border-t-2 border-t-fg/70' : ''} ${flash ? 'row-flash' : ''}`}
+      style={{ top, height: ROW_H, width: g.leftW + g.laneW }}
+      data-row={row.key}
+    >
       <div className={`gantt-left sticky left-0 z-10 flex h-full shrink-0 items-center border-r border-line-strong ${flash ? 'row-flash' : ''}`} style={{ width: g.leftW, ['--row-bg' as string]: bg }}>
-        <span className="pointer-events-none absolute inset-y-0 left-0 w-1.5" style={{ backgroundColor: pc }} aria-hidden="true" />
-        {cat && <span className="pointer-events-none absolute inset-y-0 left-1.5 w-[3px]" style={{ backgroundColor: cat, opacity: row.kind === 'task' ? 1 : 0.55 }} aria-hidden="true" />}
         {row.kind === 'project' && <ProjectCells row={row} />}
+        {row.kind === 'section' && <SectionCells row={row} />}
         {(row.kind === 'task' || row.kind === 'subtask') && <TaskCells row={row} />}
         {row.kind === 'add' && <AddCells row={row} />}
       </div>

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { CATEGORIES, CATEGORY_COLOR, CATEGORY_SHORT, type Category } from '@shared/categories';
 import type { CreateTaskInput, PatchTaskInput, ProjectDto, TaskDto } from '@shared/schemas/plan';
 import { addDays, diffDays, formatShort, maxDate, minDate, type IsoDate } from '@shared/schedule/dates';
-import { buildRows, filtersActive, type RowFilters } from '@shared/schedule/rows';
+import { buildRows, filtersActive, sectionKey, type RowFilters } from '@shared/schedule/rows';
 import { ownSpan, type Span } from '@shared/schedule/spans';
 import { dateAtX, dayCount, sundayOffset, timelineRange, xOf, ZOOM_PX, type Zoom } from '@shared/schedule/timeline';
 import { canEdit, type UserPublic } from '@shared/types';
@@ -14,13 +14,13 @@ import { GanttHeader } from '../components/gantt/GanttHeader';
 import { depLabel, GanttRowView, type RowPreview } from '../components/gantt/GanttRow';
 import { columns, HEADER_H, leftWidth, OVERSCAN, ROW_H, type ColKey } from '../components/gantt/layout';
 import { NewTaskDialog } from '../components/gantt/NewTaskDialog';
+import { PlannerPrint } from '../components/gantt/PlannerPrint';
 import { TaskDrawer } from '../components/gantt/TaskDrawer';
 import { NewProjectDialog } from '../components/projects/NewProjectDialog';
 import { ImportQuoteDialog } from '../components/projects/QuoteImport';
 import { Seg } from '../components/ui';
 import { usePeople } from '../lib/people';
 import { readPref, writePref } from '../lib/prefs';
-import { projectColorMap } from '../lib/projectColors';
 import { toast } from '../lib/toast';
 import { useTodayIST } from './Today';
 
@@ -50,7 +50,8 @@ interface RowDragState {
 
 function siblingRows(rows: Row[], row: Row): Row[] {
   if (row.kind === 'project') return rows.filter((r) => r.kind === 'project');
-  if (row.kind === 'task') return rows.filter((r) => r.kind === 'task' && r.project.id === row.project.id);
+  // Tasks move within their section (same project and category).
+  if (row.kind === 'task') return rows.filter((r) => r.kind === 'task' && r.project.id === row.project.id && r.task.category === row.task.category);
   if (row.kind === 'subtask') return rows.filter((r) => r.kind === 'subtask' && r.parent.id === row.parent.id);
   return [];
 }
@@ -70,6 +71,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
   const [compact, setCompact] = useState<boolean>(() => readPref('planner.compact', false));
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set(readPref<string[]>('planner.collapsedProjects', [])));
   const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(() => new Set(readPref<string[]>('planner.collapsedTasks', [])));
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set(readPref<string[]>('planner.collapsedSections', [])));
   const [activeOnly, setActiveOnly] = useState<boolean>(() => readPref('planner.activeOnly', false));
   const [filters, setFilters] = useState<RowFilters>(() => ({ unscheduledOnly: params.get('unscheduled') === '1' }));
   const [forcedAdd, setForcedAdd] = useState<Set<string>>(new Set());
@@ -77,6 +79,8 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
   const [creatingProject, setCreatingProject] = useState(false);
   const [newTask, setNewTask] = useState<NewTaskRequest | null>(null);
   const [importing, setImporting] = useState<ProjectDto | null>(null);
+  const [printMenu, setPrintMenu] = useState(false);
+  const [printJob, setPrintJob] = useState<{ from: IsoDate; to: IsoDate } | null>(null);
   const [flashKey, setFlashKey] = useState<string | null>(null);
   const lastCategory = useRef<string>(readPref('planner.lastCategory', 'material'));
 
@@ -91,6 +95,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
   useEffect(() => writePref('planner.compact', compact), [compact]);
   useEffect(() => writePref('planner.collapsedProjects', [...collapsedProjects]), [collapsedProjects]);
   useEffect(() => writePref('planner.collapsedTasks', [...collapsedTasks]), [collapsedTasks]);
+  useEffect(() => writePref('planner.collapsedSections', [...collapsedSections]), [collapsedSections]);
   useEffect(() => writePref('planner.activeOnly', activeOnly), [activeOnly]);
 
   const px = ZOOM_PX[zoom];
@@ -101,7 +106,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
   const projects = useMemo(() => (plan.data?.projects ?? []).filter((p) => !activeOnly || p.status === 'active'), [plan.data, activeOnly]);
   const rows: Row[] = useMemo(() => {
     if (!plan.data) return [];
-    const built = buildRows<ProjectDto, TaskDto>(projects, plan.data.tasks, { today, collapsedProjects, collapsedTasks, filters, addRows: editable });
+    const built = buildRows<ProjectDto, TaskDto>(projects, plan.data.tasks, { today, collapsedProjects, collapsedTasks, collapsedSections, filters, addRows: editable, sections: true });
     if (!forcedAdd.size || filtersActive(filters)) return built;
     // "+sub" on a task without sub-tasks opens an add-sub-task row right under it.
     const out: Row[] = [];
@@ -110,7 +115,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       if (r.kind === 'task' && !r.hasChildren && forcedAdd.has(r.task.id)) out.push({ kind: 'add', key: `a:${r.task.id}`, project: r.project, parent: r.task });
     }
     return out;
-  }, [plan.data, projects, today, collapsedProjects, collapsedTasks, filters, editable, forcedAdd]);
+  }, [plan.data, projects, today, collapsedProjects, collapsedTasks, collapsedSections, filters, editable, forcedAdd]);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
@@ -199,7 +204,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       let i = list.findIndex((r) => r.key === rowKey) + delta;
       while (i >= 0 && i < list.length) {
         const r = list[i]!;
-        const has = r.kind === 'add' ? col === 'title' : r.kind === 'project' ? false : !(r.kind === 'subtask' && col === 'cat');
+        const has = r.kind === 'add' ? col === 'title' : r.kind === 'project' || r.kind === 'section' ? false : !(r.kind === 'subtask' && col === 'cat');
         if (has) return focusCell(r.key, col);
         i += delta;
       }
@@ -222,12 +227,20 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       const order = [...siblings];
       order.splice(to, 0, ...order.splice(from, 1));
       if (row.kind === 'project') reorderProjects.mutate(order.map((r) => (r as Extract<Row, { kind: 'project' }>).project.id));
-      else if (row.kind === 'task' || row.kind === 'subtask') {
-        const ids = order.map((r) => (r as Extract<Row, { kind: 'task' | 'subtask' }>).task.id);
+      else if (row.kind === 'subtask') {
+        const ids = order.map((r) => (r as Extract<Row, { kind: 'subtask' }>).task.id);
         reorderTasks.mutate({ projectId: row.task.projectId, parentId: row.task.parentId, ids });
+      } else if (row.kind === 'task') {
+        // A section is a slice of the project's tasks: put its new order back into the project's full order.
+        const moved = order.map((r) => (r as Extract<Row, { kind: 'task' }>).task.id);
+        const inSection = new Set(moved);
+        const all = (plan.data?.tasks ?? []).filter((t) => t.projectId === row.task.projectId && !t.parentId).sort((a, b) => a.sortOrder - b.sortOrder);
+        let k = 0;
+        const ids = all.map((t) => (inSection.has(t.id) ? moved[k++]! : t.id));
+        reorderTasks.mutate({ projectId: row.task.projectId, parentId: null, ids });
       }
     },
-    [reorderProjects, reorderTasks],
+    [reorderProjects, reorderTasks, plan.data],
   );
 
   // ---- bar dragging ----
@@ -452,6 +465,14 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
           else n.add(id);
           return n;
         }),
+      toggleSection: (projectId: string, category: string) =>
+        setCollapsedSections((s) => {
+          const n = new Set(s);
+          const k = sectionKey(projectId, category);
+          if (n.has(k)) n.delete(k);
+          else n.add(k);
+          return n;
+        }),
       openDrawer: (id: string) => setDrawerId(id),
       moveFocus,
       focusCell,
@@ -471,11 +492,11 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
     }),
     [patchTask, createTask, deleteTask, moveFocus, focusCell, filters, reorderTo, startDrag, startRowDrag, scrollToDate],
   );
-  const projectColors = useMemo(() => projectColorMap((plan.data?.projects ?? []).map((p) => p.id)), [plan.data?.projects]);
+
 
   const ctx: GanttCtx = useMemo(
-    () => ({ px, origin: range.start, today, cols, leftW, laneW, editable, people, catalog: catalog.data ?? [], tasks: plan.data?.tasks ?? [], projectColors, actions }),
-    [px, range.start, today, cols, leftW, laneW, editable, people, catalog.data, plan.data, projectColors, actions],
+    () => ({ px, origin: range.start, today, cols, leftW, laneW, editable, people, catalog: catalog.data ?? [], tasks: plan.data?.tasks ?? [], actions }),
+    [px, range.start, today, cols, leftW, laneW, editable, people, catalog.data, plan.data, actions],
   );
 
   // ---- ?focus=<taskId> | project:<id> (from Today / Projects) ----
@@ -540,6 +561,35 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [scrollToDate, today]);
 
+  // ---- print / PDF: the rows as shown, at this zoom, for the dates on screen or the whole plan ----
+  const screenWindow = (): { from: IsoDate; to: IsoDate } => {
+    const el = scroller.current;
+    if (!el) return { from: range.start, to: range.end };
+    const from = dateAtX(el.scrollLeft, range.start, px);
+    const to = dateAtX(el.scrollLeft + Math.max(px, el.clientWidth - leftW) - 1, range.start, px);
+    return { from: maxDate(from, range.start), to: minDate(to, range.end) };
+  };
+  const planWindow = (): { from: IsoDate; to: IsoDate } => {
+    const spans = rows.flatMap((r) => (r.kind === 'project' && r.span ? [r.span] : []));
+    if (!spans.length) return screenWindow();
+    const from = spans.reduce((a, s) => (s.start < a ? s.start : a), spans[0]!.start);
+    const to = spans.reduce((a, s) => (s.end > a ? s.end : a), spans[0]!.end);
+    return { from: addDays(from, -2), to: addDays(to, 2) };
+  };
+  useEffect(() => {
+    if (!printJob) return;
+    // Let the print layout render, open the browser's print dialog (Save as PDF lives there), then remove it.
+    const t = setTimeout(() => {
+      window.print();
+      setPrintJob(null);
+    }, 120);
+    return () => clearTimeout(t);
+  }, [printJob]);
+  const startPrint = (w: { from: IsoDate; to: IsoDate }) => {
+    setPrintMenu(false);
+    setPrintJob(w);
+  };
+
   const drawerTask = drawerId ? plan.data?.tasks.find((t) => t.id === drawerId) : undefined;
   const todayX = today >= range.start && today <= range.end ? xOf(today, range.start, px) : null;
   const catFilter = new Set(filters.categories ?? []);
@@ -565,7 +615,24 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
   const bgPos = [`${sun}px 0`, lines?.pos].filter(Boolean).join(', ');
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <>
+    {printJob && plan.data && (
+      <div className="hidden print:block">
+        <PlannerPrint
+          rows={rows}
+          from={printJob.from}
+          to={printJob.to}
+          zoom={zoom}
+          px={px}
+          cols={cols}
+          people={people}
+          tasks={plan.data.tasks}
+          today={today}
+          note={[anyFilter ? 'filtered' : '', collapsedProjects.size || collapsedTasks.size || collapsedSections.size ? 'folded rows left out' : ''].filter(Boolean).join(', ')}
+        />
+      </div>
+    )}
+    <div className="relative flex min-h-0 flex-1 flex-col print:hidden">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line bg-surface px-4 py-2 no-print">
         <h1 className="sr-only">Planner</h1>
         <Seg label="Zoom" value={zoom} onChange={setZoom} options={[{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]} />
@@ -647,6 +714,39 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
               <path d={collapsedProjects.size ? 'M7 9l5 5 5-5M4 4h16M4 20h16' : 'M7 15l5-5 5 5M4 4h16M4 20h16'} />
             </svg>
           </button>
+          <div className="relative">
+            <button type="button" className="btn-secondary min-h-8 py-0.5" onClick={() => setPrintMenu(!printMenu)} aria-expanded={printMenu} title="Print the planner or save it as a PDF">
+              Print / PDF
+            </button>
+            {printMenu && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-72 border border-line-strong bg-surface p-1 text-sm shadow-lg" onMouseLeave={() => setPrintMenu(false)}>
+                {(() => {
+                  const s = screenWindow();
+                  const p = planWindow();
+                  return (
+                    <>
+                      <button type="button" className="block w-full px-3 py-2 text-left hover:bg-surface-3" onClick={() => startPrint(s)}>
+                        <span className="font-medium">Dates on screen</span>
+                        <span className="block text-xs text-muted">
+                          {formatShort(s.from)} – {formatShort(s.to)}
+                        </span>
+                      </button>
+                      <button type="button" className="block w-full px-3 py-2 text-left hover:bg-surface-3" onClick={() => startPrint(p)}>
+                        <span className="font-medium">Whole plan</span>
+                        <span className="block text-xs text-muted">
+                          {formatShort(p.from)} – {formatShort(p.to)}
+                        </span>
+                      </button>
+                      <p className="border-t border-line px-3 py-2 text-xs text-muted">
+                        Prints the rows as shown (folded rows and filters included) at the {zoom} zoom, fitted to A4 landscape. Choose “Save as PDF” in the print
+                        dialog for a PDF.
+                      </p>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
           {editable && (
             <button type="button" className="btn-primary min-h-8 py-0.5" onClick={() => setCreatingProject(true)}>
               + Project
@@ -754,5 +854,6 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
         />
       )}
     </div>
+    </>
   );
 }

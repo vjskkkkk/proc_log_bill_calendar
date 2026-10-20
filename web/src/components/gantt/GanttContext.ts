@@ -27,6 +27,7 @@ export interface GanttActions {
   remove: (task: TaskDto) => void;
   toggleProject: (id: string) => void;
   toggleTask: (id: string) => void;
+  toggleSection: (projectId: string, category: string) => void;
   openDrawer: (id: string) => void;
   /** Move focus to a column of the row `delta` rows away (skipping rows without that column). */
   moveFocus: (rowKey: string, col: ColKey, delta: number) => void;
@@ -54,8 +55,6 @@ export interface GanttCtx {
   catalog: CatalogItemDto[];
   /** Every task of the open plan (for "Waits for" labels and choices). */
   tasks: TaskDto[];
-  /** Project id → its colour (lib/projectColors.ts). */
-  projectColors: Map<string, string>;
   actions: GanttActions;
 }
 

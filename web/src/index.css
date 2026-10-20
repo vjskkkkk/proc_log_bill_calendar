@@ -116,6 +116,7 @@ body { @apply bg-canvas text-fg antialiased; }
 
 @media print {
   header, .no-print { display: none !important; }
+  .planner-print { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: white; }
   main { max-width: none !important; padding: 0 !important; }
   .card { box-shadow: none; break-inside: avoid; }

@@ -58,7 +58,7 @@ export function Shell({
     }`;
   const width = fullBleed ? 'px-4' : 'mx-auto max-w-[1500px] px-6';
   return (
-    <div className={fullBleed ? 'h-screen flex flex-col overflow-hidden' : 'min-h-screen flex flex-col'}>
+    <div className={fullBleed ? 'h-screen flex flex-col overflow-hidden print:h-auto print:overflow-visible' : 'min-h-screen flex flex-col'}>
       <header className="sticky top-0 z-30 shrink-0 bg-header text-white border-b border-white/10 shadow-md shadow-black/20">
         <div className={`${width} h-14 flex items-center gap-6`}>
           <Link to="/" className="flex h-full items-center shrink-0" title="Today">
@@ -111,7 +111,7 @@ export function Shell({
         </div>
       </header>
       {fullBleed ? (
-        <main className="flex-1 min-h-0 flex flex-col">{children}</main>
+        <main className="flex-1 min-h-0 flex flex-col print:block">{children}</main>
       ) : (
         <main className="flex-1 mx-auto w-full max-w-[1500px] px-6 py-6">{children}</main>
       )}
