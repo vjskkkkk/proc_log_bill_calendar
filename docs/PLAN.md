@@ -298,6 +298,14 @@ drawer Independent/Dependent toggle.
 category, sub-category; no figures; 404 for drafts/cancelled. Delivered as `docs/boq-maker-quote-lines.patch`
 (tested against BOQ's suite); merged into BOQ Maker's `main` and deployed 2026-10-20.
 
+**Import from a file** (2026-10-20): New project → "From a file" (and "Use a BOQ file instead" in "From quote")
+takes an Excel (.xlsx/.xlsm), CSV or PDF BOQ. It is read in the browser (`web/src/lib/readBoqFile.ts`: exceljs for
+workbooks, pdf.js for PDFs, both loaded only when used); `shared/boqfile.ts` finds the header row (Unit + Qty + an
+item/description column) and reads each row below with a description, unit and quantity — areas from banner rows,
+"(optional)" lines unticked, specification and total rows skipped, wrapped PDF names joined, rates and amounts never
+read. The lines are editable in the same review (+ Add a line) and go to the import with `source: 'file'` (no quote
+link; the file name labels the task notes). Scanned PDFs and old .xls files are refused with a reason.
+
 **Known limit**: one predecessor per row. A surface installation waits for its material; when it must also wait
 for the civil base to cure, change its Waits for in the planner.
 

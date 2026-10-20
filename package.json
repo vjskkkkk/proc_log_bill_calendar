@@ -28,7 +28,9 @@
   "dependencies": {
     "@tanstack/react-query": "5.102.8",
     "drizzle-orm": "0.45.2",
+    "exceljs": "4.4.0",
     "hono": "4.13.7",
+    "pdfjs-dist": "6.4.299",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router-dom": "7.18.3",

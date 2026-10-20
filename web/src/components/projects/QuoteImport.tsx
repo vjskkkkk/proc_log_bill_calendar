@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { CATEGORIES, CATEGORY_LABEL, CATEGORY_SHORT, type Category } from '@shared/categories';
 import { FIXED_ONE_DAY, type CatalogItemDto, type ImportQuoteInput, type ProjectDto } from '@shared/schemas/plan';
 import { formatShort, formatMedium, todayIST, type IsoDate } from '@shared/schedule/dates';
-import { buildImportPlan, defaultChoices, type LineChoice, type QuoteLine } from '@shared/schedule/import';
+import { buildImportPlan, defaultChoices, matchLine, type LineChoice, type QuoteLine } from '@shared/schedule/import';
 import { addQuantity, describeQuantities, normaliseUnit, type DurationRule } from '@shared/schedule/rules';
 import { rollForward, workingDays } from '@shared/schedule/workdays';
 import { crmTitle } from '@shared/crm';
 import { useCatalog } from '../../api/catalog';
 import { useBoqQuotes, useQuoteLines } from '../../api/links';
 import { errorText, useImportQuote } from '../../api/plan';
+import { ACCEPTED_FILES, readBoqFile, type ReadFile } from '../../lib/readBoqFile';
 import { toast } from '../../lib/toast';
 import { RuleEditor } from '../RuleEditor';
 import { CategoryDot, Modal } from '../ui';
@@ -41,8 +42,9 @@ export function newDraft(lines: QuoteLine[], catalog: CatalogItemDto[]): ImportD
   };
 }
 
-export function toImportInput(draft: ImportDraft, quote: { id: string; rootQuoteId: string; displayNo: string }, lines: QuoteLine[]): ImportQuoteInput {
+export function toImportInput(draft: ImportDraft, quote: { id: string; rootQuoteId: string; displayNo: string }, lines: QuoteLine[], source: 'boq' | 'file' = 'boq'): ImportQuoteInput {
   return {
+    source,
     quoteId: quote.id,
     rootQuoteId: quote.rootQuoteId,
     quoteLabel: quote.displayNo,
@@ -76,9 +78,35 @@ function TemplatePicker({ catalog, exclude, onPick, label }: { catalog: CatalogI
 }
 
 /** The review: what each quote line becomes, what is always added, when it starts, and the resulting tasks. */
-export function QuoteImportReview({ lines, catalog, draft, onChange, quoteLabel }: { lines: QuoteLine[]; catalog: CatalogItemDto[]; draft: ImportDraft; onChange: (d: ImportDraft) => void; quoteLabel: string }) {
+export function QuoteImportReview({
+  lines,
+  catalog,
+  draft,
+  onChange,
+  quoteLabel,
+  onLinesChange,
+}: {
+  lines: QuoteLine[];
+  catalog: CatalogItemDto[];
+  draft: ImportDraft;
+  onChange: (d: ImportDraft) => void;
+  quoteLabel: string;
+  /** Lines read from a file can be corrected, added and removed here. */
+  onLinesChange?: (lines: QuoteLine[]) => void;
+}) {
   const byId = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog]);
   const setChoice = (lineId: string, patch: Partial<DraftChoice>) => onChange({ ...draft, choices: draft.choices.map((c) => (c.lineId === lineId ? { ...c, ...patch } : c)) });
+  const editLine = (id: string, patch: Partial<QuoteLine>) => {
+    const next = lines.map((l) => (l.id === id ? { ...l, ...patch } : l));
+    onLinesChange?.(next);
+    // A new name is matched again (what the Task Lists say it brings in).
+    if (patch.name !== undefined) setChoice(id, { templateIds: matchLine(next.find((l) => l.id === id)!, catalog) });
+  };
+  const addLine = () => {
+    const id = `new-${Date.now().toString(36)}`;
+    onLinesChange?.([...lines, { id, area: '', sport: '', code: '', name: '', unit: 'Sqft', qty: 0, optional: false, category: '', subCategory: '' }]);
+    onChange({ ...draft, choices: [...draft.choices, { lineId: id, include: true, templateIds: [], custom: null, remember: false }] });
+  };
   const defaults = useMemo(() => new Map(defaultChoices(lines, catalog).map((c) => [c.lineId, c.templateIds])), [lines, catalog]);
 
   const plan = useMemo(
@@ -147,13 +175,42 @@ export function QuoteImportReview({ lines, catalog, draft, onChange, quoteLabel 
                       <input type="checkbox" className="mt-1 h-4 w-4 accent-brand-purple" checked={c.include} onChange={(e) => setChoice(l.id, { include: e.target.checked })} aria-label={`Use ${l.name}`} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <div className="font-medium">{l.name}</div>
+                      {onLinesChange ? (
+                        <input
+                          className="input min-h-7 py-0 text-sm font-medium"
+                          value={l.name}
+                          placeholder="Item name"
+                          onChange={(e) => editLine(l.id, { name: e.target.value })}
+                          aria-label="Item name"
+                          maxLength={500}
+                        />
+                      ) : (
+                        <div className="font-medium">{l.name}</div>
+                      )}
                       <div className="text-xs text-muted">
-                        {[l.area, l.category, l.code].filter(Boolean).join(' · ')}
+                        {[l.area, l.category, l.code].filter(Boolean).join(', ')}
                         {l.optional && <span className="ml-1 chip bg-surface-3 text-muted-strong">Optional</span>}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {onLinesChange ? (
+                        <span className="flex justify-end gap-1">
+                          <input
+                            className="input min-h-7 w-20 px-1.5 py-0 text-right text-sm"
+                            inputMode="decimal"
+                            value={l.qty || ''}
+                            onChange={(e) => {
+                              const n = Number(e.target.value.replace(/,/g, ''));
+                              if (Number.isFinite(n) && n >= 0) editLine(l.id, { qty: n });
+                            }}
+                            aria-label="Quantity"
+                          />
+                          <input className="input min-h-7 w-14 px-1.5 py-0 text-sm" value={l.unit} onChange={(e) => editLine(l.id, { unit: e.target.value })} aria-label="Unit" maxLength={20} />
+                        </span>
+                      ) : (
+                        qtyText(l)
+                      )}
+                    </td>
                     <td className="px-2 py-1.5">
                       <div className="flex flex-wrap items-center gap-1">
                         {c.templateIds.map((id) => {
@@ -224,12 +281,19 @@ export function QuoteImportReview({ lines, catalog, draft, onChange, quoteLabel 
               {!lines.length && (
                 <tr>
                   <td colSpan={4} className="px-3 py-4 text-center text-muted">
-                    This quote has no line items.
+                    {onLinesChange ? 'No line items yet: add them below.' : 'This quote has no line items.'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          {onLinesChange && (
+            <div className="border-t border-line bg-surface-2 px-3 py-2">
+              <button type="button" className="text-sm font-medium text-brand-purple hover:underline" onClick={addLine}>
+                + Add a line
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -312,19 +376,84 @@ export function QuoteImportReview({ lines, catalog, draft, onChange, quoteLabel 
   );
 }
 
-/** Loads a quote's lines and keeps a review draft for them (reset when the quote or Task Lists first arrive). */
+/** A review draft for some lines: started once the lines and the Task Lists are in, started again when `key` changes. */
+function useImportDraft(key: string | null, lines: QuoteLine[] | null, catalog: CatalogItemDto[] | undefined) {
+  const [draft, setDraft] = useState<ImportDraft | null>(null);
+  useEffect(() => {
+    setDraft(null);
+  }, [key]);
+  useEffect(() => {
+    if (key && lines && catalog && !draft) setDraft(newDraft(lines, catalog));
+  }, [key, lines, catalog, draft]);
+  return { draft, setDraft };
+}
+
+/** Loads a quote's lines and keeps a review draft for them. */
 export function useQuoteDraft(quoteId: string | null) {
   const lines = useQuoteLines(quoteId);
   const catalog = useCatalog();
-  const [draft, setDraft] = useState<ImportDraft | null>(null);
-  const ready = !!lines.data && !lines.data.unavailable && !!catalog.data;
-  useEffect(() => {
-    setDraft(null);
-  }, [quoteId]);
-  useEffect(() => {
-    if (ready && !draft) setDraft(newDraft(lines.data!.lines, catalog.data!));
-  }, [ready, draft, lines.data, catalog.data]);
+  const { draft, setDraft } = useImportDraft(quoteId, lines.data && !lines.data.unavailable ? lines.data.lines : null, catalog.data);
   return { lines, catalog, draft, setDraft };
+}
+
+/** Lines read from a file (editable) and their review draft. */
+export function useFileDraft() {
+  const catalog = useCatalog();
+  const [file, setFile] = useState<{ key: string; name: string; read: ReadFile } | null>(null);
+  const [lines, setLines] = useState<QuoteLine[] | null>(null);
+  const { draft, setDraft } = useImportDraft(file?.key ?? null, lines, catalog.data);
+  const load = (name: string, read: ReadFile) => {
+    setFile({ key: `${name}:${Date.now()}`, name, read });
+    setLines(read.lines);
+  };
+  const clear = () => {
+    setFile(null);
+    setLines(null);
+  };
+  return { catalog, file, lines, setLines, draft, setDraft, load, clear };
+}
+
+/** Pick or drop an Excel, CSV or PDF BOQ; it is read here in the browser. */
+export function BoqFilePicker({ onRead }: { onRead: (fileName: string, read: ReadFile) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [over, setOver] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const take = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const read = await readBoqFile(file);
+      if (!read.lines.length) setProblem(`${file.name}: ${read.warnings.join('; ') || 'no line items found'}. You can still add the lines by hand.`);
+      onRead(file.name, read);
+    } catch (e) {
+      setProblem(`${file.name} could not be read: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <label
+        className={`flex cursor-pointer flex-col items-center justify-center gap-1 border-2 border-dashed px-6 py-10 text-center ${over ? 'border-brand-purple bg-brand-purple/5' : 'border-line-strong hover:bg-surface-2'}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          void take(e.dataTransfer.files[0]);
+        }}
+      >
+        <input type="file" className="sr-only" accept={ACCEPTED_FILES} onChange={(e) => void take(e.target.files?.[0])} disabled={busy} />
+        <span className="font-semibold">{busy ? 'Reading the file…' : 'Choose a BOQ file, or drop it here'}</span>
+        <span className="text-sm text-muted">Excel (.xlsx), CSV or PDF. It is read on this computer; only the item names, units and quantities are kept — no rates or amounts.</span>
+      </label>
+      {problem && <div className="border border-brand-yellow/60 bg-brand-yellow/15 p-3 text-sm text-warn-fg">{problem}</div>}
+    </div>
+  );
 }
 
 function QuotePicker({ onPick }: { onPick: (q: { id: string; rootQuoteId: string; displayNo: string }) => void }) {
@@ -360,9 +489,23 @@ export function ImportQuoteDialog({ project, onClose }: { project: ProjectDto; o
   const [quote, setQuote] = useState<{ id: string; rootQuoteId: string; displayNo: string } | null>(
     project.boqQuoteId ? { id: project.boqQuoteId, rootQuoteId: project.boqRootQuoteId ?? project.boqQuoteId, displayNo: project.boqQuoteNo } : null,
   );
-  const { lines, catalog, draft, setDraft } = useQuoteDraft(quote?.id ?? null);
+  const [useFile, setUseFile] = useState(false);
+  const fileDraft = useFileDraft();
+  const { lines, catalog, draft, setDraft } = useQuoteDraft(useFile ? null : quote?.id ?? null);
   const run = useImportQuote(project.id);
+  const submitFile = () => {
+    if (!fileDraft.file || !fileDraft.draft || !fileDraft.lines) return;
+    const lines = fileDraft.lines.filter((l) => l.name.trim());
+    run.mutate(toImportInput(fileDraft.draft, { id: 'file', rootQuoteId: 'file', displayNo: fileDraft.file.name }, lines, 'file'), {
+      onSuccess: (r) => {
+        toast(`Added ${r.taskIds.length} tasks and sub-tasks from ${fileDraft.file!.name}`, { tone: 'ok' });
+        onClose();
+      },
+      onError: (e) => toast(errorText(e), { tone: 'error' }),
+    });
+  };
   const submit = () => {
+    if (useFile) return submitFile();
     if (!quote || !draft || !lines.data) return;
     run.mutate(toImportInput(draft, { ...quote, displayNo: quote.displayNo || lines.data.quote?.displayNo || '' }, lines.data.lines), {
       onSuccess: (r) => {
@@ -378,7 +521,7 @@ export function ImportQuoteDialog({ project, onClose }: { project: ProjectDto; o
       onClose={onClose}
       wide
       footer={
-        quote && draft ? (
+        (useFile ? fileDraft.draft : quote && draft) ? (
           <>
             <button type="button" className="btn-secondary" onClick={onClose}>
               Cancel
@@ -390,14 +533,40 @@ export function ImportQuoteDialog({ project, onClose }: { project: ProjectDto; o
         ) : undefined
       }
     >
-      {!quote && <QuotePicker onPick={setQuote} />}
-      {quote && (lines.isLoading || catalog.isLoading) && <p className="text-muted">Reading the quote's line items…</p>}
-      {quote && lines.data?.unavailable && (
+      {!useFile && (
+        <p className="mb-3 text-sm">
+          <button type="button" className="font-medium text-brand-purple hover:underline" onClick={() => setUseFile(true)}>
+            Use a BOQ file instead (Excel or PDF)
+          </button>
+        </p>
+      )}
+      {useFile && !fileDraft.file && <BoqFilePicker onRead={fileDraft.load} />}
+      {useFile && fileDraft.file && fileDraft.draft && fileDraft.lines && fileDraft.catalog.data && (
+        <>
+          <p className="mb-3 text-sm">
+            From <b>{fileDraft.file.name}</b>: {fileDraft.file.read.lines.length} lines read.{' '}
+            <button type="button" className="text-brand-purple hover:underline" onClick={fileDraft.clear}>
+              Choose another file
+            </button>
+          </p>
+          <QuoteImportReview
+            lines={fileDraft.lines}
+            onLinesChange={fileDraft.setLines}
+            catalog={fileDraft.catalog.data}
+            draft={fileDraft.draft}
+            onChange={fileDraft.setDraft}
+            quoteLabel={fileDraft.file.name}
+          />
+        </>
+      )}
+      {!useFile && !quote && <QuotePicker onPick={setQuote} />}
+      {!useFile && quote && (lines.isLoading || catalog.isLoading) && <p className="text-muted">Reading the quote's line items…</p>}
+      {!useFile && quote && lines.data?.unavailable && (
         <div className="rounded-lg border border-brand-yellow/60 bg-brand-yellow/15 p-3 text-sm text-warn-fg">
           <b>Can't read the quote's line items right now.</b> {lines.data.unavailable}.
         </div>
       )}
-      {quote && draft && lines.data && catalog.data && (
+      {!useFile && quote && draft && lines.data && catalog.data && (
         <>
           {project.boqQuoteId && <p className="mb-3 text-xs text-muted">The tasks are added after the project's current ones; nothing already in the planner changes.</p>}
           <QuoteImportReview lines={lines.data.lines} catalog={catalog.data} draft={draft} onChange={setDraft} quoteLabel={quote.displayNo} />

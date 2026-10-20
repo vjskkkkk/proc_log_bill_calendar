@@ -5,8 +5,8 @@ and billing** — with a daily to-do list filtered from it.
 
 - **Today**: a project-wise list of the tasks and sub-tasks to work on today (in progress + overdue), with My/All.
 - **Planner**: one big Gantt chart; rows are projects → tasks → sub-tasks, columns are dates. Type dates or drag bars.
-- **Projects**: start a project from an issued BOQ Maker quote (its Gantt is drafted from the quote's line items), a
-  CRM lead, or blank.
+- **Projects**: start a project from an issued BOQ Maker quote or an existing BOQ file (Excel, CSV or PDF) — its Gantt
+  is drafted from the line items — or from a CRM lead, or blank.
 - **Task Lists**: the tasks and sub-tasks a project needs, by category, with working days to complete (fixed, or per
   quantity from the quote), what each waits for, and the BOQ words that bring them into a project.
 

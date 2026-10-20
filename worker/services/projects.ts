@@ -63,7 +63,9 @@ export async function importIntoProject(d: Db, user: SessionUser, id: string, ra
   const project = await getProject(d, id);
   const root = input.rootQuoteId ?? input.quoteId;
   const link: Partial<typeof schema.projects.$inferInsert> = {};
-  if (!project.boqRootQuoteId) {
+  if (input.source === 'file') {
+    // Lines from an uploaded file: nothing to link.
+  } else if (!project.boqRootQuoteId) {
     await assertNotLinked(d, 'boqRootQuoteId', root);
     Object.assign(link, { boqQuoteId: input.quoteId, boqRootQuoteId: root, boqQuoteNo: input.quoteLabel });
   } else if (project.boqRootQuoteId !== root) {

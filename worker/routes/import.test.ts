@@ -88,6 +88,14 @@ describe('import from a quote', () => {
     expect((await call('POST', `/api/projects/${blank}/import`, { quoteId: 'q-r1', rootQuoteId: 'q-root1', startDate: '2026-10-19', lines, choices }, t.editor)).status).toBe(400);
     const other = (await call('POST', '/api/projects', { name: 'Another' }, t.editor)).body.project.id;
     expect((await call('POST', `/api/projects/${other}/import`, { quoteId: 'q-2', rootQuoteId: 'q-2', startDate: '2026-10-19', lines, choices }, t.editor)).status).toBe(409);
+    // Lines read from an uploaded file add tasks without touching the quote link.
+    const fileLines = [{ id: 'f1', name: 'Verde Arena', unit: 'Sqft', qty: 2000 }];
+    const fromFile = await call('POST', `/api/projects/${blank}/import`, { source: 'file', quoteId: 'file', quoteLabel: 'Old BOQ.xlsx', startDate: '2026-10-19', lines: fileLines, choices: [{ lineId: 'f1', include: true, templateIds: ['tl-m-turf'] }] }, t.editor);
+    expect(fromFile.status).toBe(201);
+    expect(fromFile.body.project).toMatchObject({ boqQuoteId: 'q-2', boqQuoteNo: 'KS/2026/0102' });
+    const turf = (await projectTasks(t.editor, blank)).find((x) => x.title === 'Artificial turf');
+    expect(turf).toMatchObject({ quantities: { sqft: 2000 } });
+    expect(turf.notes).toContain('From Old BOQ.xlsx:');
     // Everything skipped: nothing to add.
     expect((await call('POST', `/api/projects/${blank}/import`, { quoteId: 'q-2', rootQuoteId: 'q-2', startDate: '2026-10-19', lines, choices: [{ lineId: 'l1', include: false, templateIds: [] }] }, t.editor)).status).toBe(400);
   });

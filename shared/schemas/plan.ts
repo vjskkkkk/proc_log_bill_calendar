@@ -190,6 +190,9 @@ export const lineChoiceSchema = z.object({
 export type LineChoiceInput = z.input<typeof lineChoiceSchema>;
 
 export const importQuoteSchema = z.object({
+  /** 'boq': a BOQ Maker quote (links a project that has none); 'file': lines read from an uploaded file (no link). */
+  source: z.enum(['boq', 'file']).default('boq'),
+  /** The quote's id, or for a file a short label of it. */
   quoteId: id,
   /** The quote's revision family (links a project that has no quote yet). */
   rootQuoteId: nullableId.optional(),

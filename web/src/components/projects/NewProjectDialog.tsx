@@ -8,9 +8,9 @@ import { useCreateProject } from '../../api/plan';
 import { ErrorText, Field } from '../Field';
 import { Modal, Seg } from '../ui';
 import { toast } from '../../lib/toast';
-import { QuoteImportReview, toImportInput, useQuoteDraft } from './QuoteImport';
+import { BoqFilePicker, QuoteImportReview, toImportInput, useFileDraft, useQuoteDraft } from './QuoteImport';
 
-type Source = 'boq' | 'crm' | 'blank';
+type Source = 'boq' | 'file' | 'crm' | 'blank';
 
 interface Draft {
   name: string;
@@ -85,6 +85,9 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   const quoteDraft = useQuoteDraft(draft?.boqQuoteId ?? null);
   const lineData = quoteDraft.lines.data;
   const canDraft = !!draft?.boqQuoteId && !!lineData && !lineData.unavailable && !!quoteDraft.draft && !!quoteDraft.catalog.data;
+  // From a file: its lines (editable) drive the same review.
+  const fileDraft = useFileDraft();
+  const fromFile = source === 'file' && !!fileDraft.file;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -100,6 +103,16 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
       crmLeadId: draft.crmLeadId,
       ...(drafting && canDraft
         ? { import: toImportInput(quoteDraft.draft!, { id: draft.boqQuoteId!, rootQuoteId: draft.boqRootQuoteId ?? draft.boqQuoteId!, displayNo: draft.boqQuoteNo }, lineData!.lines) }
+        : {}),
+      ...(fromFile && drafting && fileDraft.draft && fileDraft.lines
+        ? {
+            import: toImportInput(
+              fileDraft.draft,
+              { id: 'file', rootQuoteId: 'file', displayNo: fileDraft.file!.name },
+              fileDraft.lines.filter((l) => l.name.trim()),
+              'file',
+            ),
+          }
         : {}),
     };
     create.mutate(input, {
@@ -125,7 +138,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
               Back
             </button>
             <button type="submit" form="new-project" className="btn-primary" disabled={create.isPending || !draft.name.trim()}>
-              {create.isPending ? 'Creating…' : drafting && canDraft ? 'Create project with tasks' : 'Create project'}
+              {create.isPending ? 'Creating…' : drafting && (canDraft || (fromFile && fileDraft.draft)) ? 'Create project with tasks' : 'Create project'}
             </button>
           </>
         ) : undefined
@@ -143,11 +156,14 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
               }}
               options={[
                 { value: 'boq', label: 'From a BOQ quote' },
+                { value: 'file', label: 'From a file' },
                 { value: 'crm', label: 'From a CRM lead' },
                 { value: 'blank', label: 'Blank' },
               ]}
             />
-            <input className="input min-h-9 flex-1 py-1" placeholder={source === 'boq' ? 'Search quote no., client, project, location…' : 'Search company, contact…'} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            {source !== 'file' && (
+              <input className="input min-h-9 flex-1 py-1" placeholder={source === 'boq' ? 'Search quote no., client, project, location…' : 'Search company, contact…'} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            )}
           </div>
 
           {source === 'boq' && (
@@ -177,6 +193,15 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </ul>
             </>
+          )}
+
+          {source === 'file' && (
+            <BoqFilePicker
+              onRead={(name, read) => {
+                fileDraft.load(name, read);
+                setDraft({ ...EMPTY, name: read.title, notes: `Drafted from ${name}`, sourceLabel: `file ${name}` });
+              }}
+            />
           )}
 
           {source === 'crm' && (
@@ -227,6 +252,24 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
             <span className="label">Notes</span>
             <textarea className="input min-h-20" value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} maxLength={5000} />
           </label>
+          {fromFile && (
+            <div className="col-span-2 border-t border-line pt-3">
+              <label className="mb-2 flex items-center gap-2 font-medium">
+                <input type="checkbox" className="h-4 w-4 accent-brand-purple" checked={drafting} onChange={(e) => setDrafting(e.target.checked)} />
+                Draft the planner from this file's line items ({fileDraft.file!.read.lines.length} read; check them below)
+              </label>
+              {drafting && fileDraft.draft && fileDraft.lines && fileDraft.catalog.data && (
+                <QuoteImportReview
+                  lines={fileDraft.lines}
+                  onLinesChange={fileDraft.setLines}
+                  catalog={fileDraft.catalog.data}
+                  draft={fileDraft.draft}
+                  onChange={fileDraft.setDraft}
+                  quoteLabel={fileDraft.file!.name}
+                />
+              )}
+            </div>
+          )}
           {draft.boqQuoteId && (
             <div className="col-span-2 border-t border-line pt-3">
               <label className="mb-2 flex items-center gap-2 font-medium">
