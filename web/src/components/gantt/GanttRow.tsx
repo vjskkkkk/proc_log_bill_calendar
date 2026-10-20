@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { CATEGORY_COLOR, isCategory } from '@shared/categories';
 import type { CatalogItemDto, TaskDto } from '@shared/schemas/plan';
 import { formatShort } from '@shared/schedule/dates';
+import { tint } from '../../lib/projectColors';
 import { dependencyCandidates } from '@shared/schedule/deps';
 import type { Span } from '@shared/schedule/spans';
 import { barGeometry } from '@shared/schedule/timeline';
@@ -63,7 +64,7 @@ function LeafBar({ row, task, span, overdue, ghost }: { row: Row; task: TaskDto;
   const down = (mode: DragMode) => (e: React.PointerEvent) => g.actions.startDrag(e, row, mode);
   return (
     <div
-      className={`absolute top-1.5 flex h-5 items-center rounded-md ${ghost ? 'border border-dashed' : 'shadow-sm'} ${overdue ? 'ring-2 ring-brand-red ring-offset-1 ring-offset-surface' : ''} ${
+      className={`absolute top-1.5 flex h-5 items-center ${ghost ? 'border border-dashed' : ''} ${overdue ? 'outline-2 outline-offset-1 outline-brand-red' : ''} ${
         task.done ? 'opacity-40' : ''
       } ${g.editable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       style={{ left, width, backgroundColor: ghost ? 'transparent' : c.bg, borderColor: ghost ? c.bg : undefined }}
@@ -72,7 +73,6 @@ function LeafBar({ row, task, span, overdue, ghost }: { row: Row; task: TaskDto;
       data-bar={task.id}
     >
       <Label text={task.title} inside={inside} done={task.done} color={c.text} />
-      {task.dependsOnId && !ghost && <span className="pointer-events-none absolute -left-2 top-1/2 h-2 w-2 -translate-y-1/2 rotate-45 border-r-2 border-t-2" style={{ borderColor: c.bg }} aria-hidden="true" />}
       {g.editable && !ghost && (
         <>
           {!task.dependsOnId && <span className="absolute -left-1 top-0 h-full w-2.5 cursor-ew-resize" onPointerDown={(e) => { e.stopPropagation(); down('start')(e); }} />}
@@ -84,10 +84,10 @@ function LeafBar({ row, task, span, overdue, ghost }: { row: Row; task: TaskDto;
 }
 
 /** Bracket over a span (a task's sub-tasks, or a whole project). */
-function Bracket({ span, tone, top }: { span: Span; tone: 'ink' | 'muted'; top: number }) {
+function Bracket({ span, tone, top, color: given }: { span: Span; tone: 'ink' | 'muted'; top: number; color?: string }) {
   const g = useGantt();
   const { left, width } = barGeometry(span, g.origin, g.px);
-  const color = tone === 'ink' ? 'var(--color-fg)' : 'var(--color-muted)';
+  const color = given ?? (tone === 'ink' ? 'var(--color-fg)' : 'var(--color-muted)');
   return (
     <div className="pointer-events-none absolute" style={{ left, width, top, height: 8 }}>
       <div className="absolute inset-x-0 top-0 h-1.5 rounded-sm" style={{ backgroundColor: color, opacity: tone === 'ink' ? 0.85 : 0.6 }} />
@@ -123,7 +123,7 @@ function Lane({ row, preview }: { row: Row; preview: RowPreview | undefined }) {
   };
   let content: React.ReactNode = null;
   if (row.kind === 'project') {
-    content = row.span && <Bracket span={row.span} tone="ink" top={12} />;
+    content = row.span && <Bracket span={row.span} tone="ink" top={12} color={g.projectColors.get(row.project.id)} />;
   } else if (row.kind === 'task') {
     if (row.hasChildren) {
       const own = preview?.span ?? row.own;
@@ -143,10 +143,17 @@ function Lane({ row, preview }: { row: Row; preview: RowPreview | undefined }) {
     else if (row.inherited) content = <LeafBar row={row} task={row.task} span={row.inherited} overdue={row.overdue} ghost />;
   }
   const empty = (row.kind === 'task' && !row.hasChildren && !row.own) || (row.kind === 'subtask' && !row.own);
+  const pc = g.projectColors.get(row.project.id) ?? 'var(--color-muted)';
+  const laneBg =
+    row.kind === 'project'
+      ? `color-mix(in srgb, ${pc} 9%, transparent)`
+      : row.kind === 'task' || row.kind === 'subtask'
+        ? `color-mix(in srgb, ${isCategory(row.task.category) ? CATEGORY_COLOR[row.task.category].bg : '#717272'} ${row.kind === 'task' ? 6 : 4}%, transparent)`
+        : undefined;
   return (
     <div
-      className={`relative h-full ${row.kind === 'project' ? 'bg-surface-3/40' : ''} ${empty && g.editable ? 'cursor-crosshair' : ''}`}
-      style={{ width: g.laneW }}
+      className={`relative h-full ${empty && g.editable ? 'cursor-crosshair' : ''}`}
+      style={{ width: g.laneW, backgroundColor: laneBg }}
       onPointerDown={onLaneDown}
       title={empty && g.editable && !(row.kind === 'subtask' && row.inherited) ? 'Drag across the days to set dates' : undefined}
     >
@@ -359,8 +366,19 @@ function ProjectCells({ row }: { row: Extract<Row, { kind: 'project' }> }) {
           {p.name}
         </button>
         {p.status === 'on_hold' && <span className="chip bg-brand-yellow/30 text-warn-fg">On hold</span>}
-        <span className="truncate text-xs text-muted">{[p.client, p.location].filter(Boolean).join(' · ')}</span>
-        <span className="ml-auto shrink-0 text-xs text-muted tabular-nums">
+        <span className="truncate text-xs text-muted">{[p.client, p.location].filter(Boolean).join(', ')}</span>
+        {row.span && (
+          <button
+            type="button"
+            tabIndex={-1}
+            className="ml-auto shrink-0 border border-line-strong bg-surface px-1.5 text-xs tabular-nums text-muted-strong hover:border-fg hover:text-fg"
+            onClick={() => g.actions.jumpTo(row.span!.start)}
+            title="Scroll the chart to this project's dates"
+          >
+            {formatShort(row.span.start)} – {formatShort(row.span.end)} ⇥
+          </button>
+        )}
+        <span className={`${row.span ? '' : 'ml-auto '}shrink-0 text-xs text-muted tabular-nums`}>
           {row.taskCount} {row.taskCount === 1 ? 'item' : 'items'}
           {row.overdueCount > 0 && <span className="ml-1.5 font-semibold text-brand-red">{row.overdueCount} overdue</span>}
         </span>
@@ -442,10 +460,15 @@ function AddCells({ row }: { row: Extract<Row, { kind: 'add' }> }) {
 
 export const GanttRowView = memo(function GanttRowView({ row, top, preview, flash }: { row: Row; top: number; preview: RowPreview | undefined; flash: boolean }) {
   const g = useGantt();
-  const bg = row.kind === 'project' ? 'bg-surface-3' : 'bg-surface';
+  const pc = g.projectColors.get(row.project.id) ?? '#717272';
+  const cat = (row.kind === 'task' || row.kind === 'subtask') && isCategory(row.task.category) ? CATEGORY_COLOR[row.task.category].bg : null;
+  // Opaque tints (these cells stay put while the chart scrolls under them).
+  const bg = row.kind === 'project' ? tint(pc, 16) : cat ? tint(cat, row.kind === 'task' ? 10 : 6) : 'var(--color-surface)';
   return (
-    <div className={`group absolute left-0 flex border-b border-line ${flash ? 'row-flash' : ''}`} style={{ top, height: ROW_H, width: g.leftW + g.laneW }} data-row={row.key}>
-      <div className={`sticky left-0 z-10 flex h-full shrink-0 items-center border-r border-line-strong ${bg} group-hover:bg-surface-2 ${flash ? 'row-flash' : ''}`} style={{ width: g.leftW }}>
+    <div className={`group absolute left-0 flex border-b ${row.kind === 'project' ? 'border-line-strong' : 'border-line'} ${flash ? 'row-flash' : ''}`} style={{ top, height: ROW_H, width: g.leftW + g.laneW }} data-row={row.key}>
+      <div className={`gantt-left sticky left-0 z-10 flex h-full shrink-0 items-center border-r border-line-strong ${flash ? 'row-flash' : ''}`} style={{ width: g.leftW, ['--row-bg' as string]: bg }}>
+        <span className="pointer-events-none absolute inset-y-0 left-0 w-1.5" style={{ backgroundColor: pc }} aria-hidden="true" />
+        {cat && <span className="pointer-events-none absolute inset-y-0 left-1.5 w-[3px]" style={{ backgroundColor: cat, opacity: row.kind === 'task' ? 1 : 0.55 }} aria-hidden="true" />}
         {row.kind === 'project' && <ProjectCells row={row} />}
         {(row.kind === 'task' || row.kind === 'subtask') && <TaskCells row={row} />}
         {row.kind === 'add' && <AddCells row={row} />}

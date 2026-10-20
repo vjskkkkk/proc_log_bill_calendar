@@ -12,9 +12,9 @@ export const GanttHeader = memo(function GanttHeader({ range, px, zoom, today, c
   const todayX = today >= range.start && today <= range.end ? xOf(today, range.start, px) : null;
   return (
     <div className="sticky top-0 z-20 flex border-b border-line-strong bg-surface-3 text-xs" style={{ height: HEADER_H, width: leftW + laneW }}>
-      <div className="sticky left-0 z-30 flex shrink-0 items-end border-r border-line-strong bg-surface-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-strong" style={{ width: leftW }}>
+      <div className="sticky left-0 z-30 flex shrink-0 items-end border-r border-line-strong bg-surface-3 pb-1.5 col-head" style={{ width: leftW }}>
         {cols.map((c) => (
-          <div key={c.key} className={`shrink-0 truncate ${c.key === 'days' ? 'px-1 text-right' : 'px-2'} ${c.key === 'done' ? 'text-center' : ''} ${c.key === 'title' ? 'pl-7' : ''}`} style={{ width: c.w }}>
+          <div key={c.key} className={`shrink-0 truncate ${c.key === 'days' ? 'px-1 text-right' : 'px-2'} ${c.key === 'done' ? 'text-center' : ''} ${c.key === 'title' ? 'pl-7' : ''}`} style={{ width: c.w }} title={c.key === 'days' ? 'Working days (Sundays off)' : undefined}>
             {c.label}
           </div>
         ))}
@@ -52,7 +52,7 @@ export const GanttHeader = memo(function GanttHeader({ range, px, zoom, today, c
             </div>
           ))}
         {todayX !== null && (
-          <div className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 rounded-full bg-brand-purple px-1.5 text-[10px] font-semibold leading-4 text-white shadow-sm" style={{ left: todayX + px / 2 }}>
+          <div className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 bg-brand-purple px-1.5 text-[10px] font-semibold leading-4 text-white" style={{ left: todayX + px / 2 }}>
             Today
           </div>
         )}

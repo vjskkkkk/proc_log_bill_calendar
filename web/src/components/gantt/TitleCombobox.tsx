@@ -219,7 +219,7 @@ export function TitleCombobox(p: TitleComboboxProps) {
               const header = o.kind === 'item' && (!prev || prev.kind !== 'item' || prev.group !== o.group) ? o.group : null;
               return (
                 <li key={o.kind === 'item' ? o.item.id : `${o.kind}:${i}`}>
-                  {header && <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{header}</div>}
+                  {header && <div className="px-3 pt-2 pb-1 col-head">{header}</div>}
                   <button
                     type="button"
                     role="option"

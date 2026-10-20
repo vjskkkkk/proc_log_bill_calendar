@@ -53,7 +53,7 @@ export function Shell({
 }) {
   const logout = useLogout();
   const link = ({ isActive }: { isActive: boolean }) =>
-    `relative flex h-full items-center gap-1.5 px-3 text-sm font-medium transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:transition-colors ${
+    `relative flex h-full items-center gap-1.5 px-3 text-sm font-medium transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:after:transition-colors ${
       isActive ? 'text-white after:bg-brand-green' : 'text-neutral-400 hover:text-white after:bg-transparent hover:after:bg-white/25'
     }`;
   const width = fullBleed ? 'px-4' : 'mx-auto max-w-[1500px] px-6';
@@ -69,7 +69,7 @@ export function Shell({
               Today
               {todayBadge && todayBadge.count > 0 && (
                 <span
-                  className={`min-w-5 rounded-full px-1.5 text-[11px] leading-5 font-semibold text-center ${todayBadge.overdue ? 'bg-brand-red text-white' : 'bg-white/15 text-white'}`}
+                  className={`min-w-5 px-1.5 text-[11px] leading-5 font-semibold text-center ${todayBadge.overdue ? 'bg-brand-red text-white' : 'bg-white/15 text-white'}`}
                   title={todayBadge.overdue ? `${todayBadge.overdue} overdue` : 'Open today'}
                 >
                   {todayBadge.count}
@@ -96,10 +96,10 @@ export function Shell({
             </a>
             <div className="mx-1.5 h-6 w-px bg-white/15" aria-hidden="true" />
             <Link to="/change-password" className="flex items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-white/10" title="Account: change password">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-purple text-xs font-semibold text-white ring-2 ring-white/10">{initials(user.name)}</span>
+              <span className="flex h-8 w-8 items-center justify-center bg-brand-purple text-xs font-semibold text-white">{initials(user.name)}</span>
               <div className="leading-tight">
                 <div className="text-sm font-medium">{user.name}</div>
-                <div className="text-[11px] uppercase tracking-wider text-neutral-400">{user.role}</div>
+                <div className="text-[11px] capitalize text-neutral-400">{user.role}</div>
               </div>
             </Link>
             <div className="mx-1.5 h-6 w-px bg-white/15" aria-hidden="true" />

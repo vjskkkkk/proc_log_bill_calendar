@@ -38,6 +38,8 @@ export interface GanttActions {
   lastCategory: () => string;
   askNew: (req: NewTaskRequest) => void;
   importQuote: (project: ProjectDto) => void;
+  /** Scroll the timeline to a date (a project's start). */
+  jumpTo: (date: IsoDate) => void;
 }
 
 export interface GanttCtx {
@@ -52,6 +54,8 @@ export interface GanttCtx {
   catalog: CatalogItemDto[];
   /** Every task of the open plan (for "Waits for" labels and choices). */
   tasks: TaskDto[];
+  /** Project id → its colour (lib/projectColors.ts). */
+  projectColors: Map<string, string>;
   actions: GanttActions;
 }
 

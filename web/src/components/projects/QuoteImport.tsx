@@ -129,7 +129,7 @@ export function QuoteImportReview({ lines, catalog, draft, onChange, quoteLabel 
         </h3>
         <div className="overflow-hidden rounded-lg border border-line">
           <table className="w-full text-left">
-            <thead className="bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            <thead className="bg-surface-2 col-head">
               <tr>
                 <th className="w-8 px-2 py-1.5" title="Use this line">Use</th>
                 <th className="px-2 py-1.5">Line</th>
@@ -261,7 +261,7 @@ export function QuoteImportReview({ lines, catalog, draft, onChange, quoteLabel 
         </h3>
         <div className="max-h-72 overflow-y-auto rounded-lg border border-line">
           <table className="w-full text-left">
-            <thead className="sticky top-0 bg-surface-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            <thead className="sticky top-0 bg-surface-2 col-head">
               <tr>
                 <th className="px-2 py-1.5">Task</th>
                 <th className="w-40 px-2 py-1.5">Quantity</th>

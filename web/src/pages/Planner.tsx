@@ -20,6 +20,7 @@ import { ImportQuoteDialog } from '../components/projects/QuoteImport';
 import { Seg } from '../components/ui';
 import { usePeople } from '../lib/people';
 import { readPref, writePref } from '../lib/prefs';
+import { projectColorMap } from '../lib/projectColors';
 import { toast } from '../lib/toast';
 import { useTodayIST } from './Today';
 
@@ -466,13 +467,15 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       lastCategory: () => lastCategory.current,
       askNew: setNewTask,
       importQuote: setImporting,
+      jumpTo: (date: IsoDate) => scrollToDate(addDays(date, -2), 0.02),
     }),
-    [patchTask, createTask, deleteTask, moveFocus, focusCell, filters, reorderTo, startDrag, startRowDrag],
+    [patchTask, createTask, deleteTask, moveFocus, focusCell, filters, reorderTo, startDrag, startRowDrag, scrollToDate],
   );
+  const projectColors = useMemo(() => projectColorMap((plan.data?.projects ?? []).map((p) => p.id)), [plan.data?.projects]);
 
   const ctx: GanttCtx = useMemo(
-    () => ({ px, origin: range.start, today, cols, leftW, laneW, editable, people, catalog: catalog.data ?? [], tasks: plan.data?.tasks ?? [], actions }),
-    [px, range.start, today, cols, leftW, laneW, editable, people, catalog.data, plan.data, actions],
+    () => ({ px, origin: range.start, today, cols, leftW, laneW, editable, people, catalog: catalog.data ?? [], tasks: plan.data?.tasks ?? [], projectColors, actions }),
+    [px, range.start, today, cols, leftW, laneW, editable, people, catalog.data, plan.data, projectColors, actions],
   );
 
   // ---- ?focus=<taskId> | project:<id> (from Today / Projects) ----
@@ -587,7 +590,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
               className={`chip border transition-colors ${catFilter.has(c) ? 'border-transparent text-white' : 'border-line-strong bg-surface text-muted-strong hover:bg-surface-3'}`}
               style={catFilter.has(c) ? { backgroundColor: CATEGORY_COLOR[c].bg, color: CATEGORY_COLOR[c].text } : undefined}
             >
-              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: CATEGORY_COLOR[c].bg }} />
+              <span className="inline-block h-2.5 w-2.5" style={{ backgroundColor: CATEGORY_COLOR[c].bg }} />
               {CATEGORY_SHORT[c]}
             </button>
           ))}
@@ -655,7 +658,32 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       <GanttContext.Provider value={ctx}>
         <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto bg-surface" onScroll={onScroll} data-gantt-scroller>
           <GanttHeader range={range} px={px} zoom={zoom} today={today} cols={cols} leftW={leftW} />
-          <div className="relative" style={{ height: Math.max(rows.length * ROW_H, 200), width: leftW + laneW }}>
+          <div className="relative" style={{ height: Math.max(rows.length * ROW_H, 240), minHeight: `calc(100% - ${HEADER_H}px)`, width: leftW + laneW }}>
+            {/* The table side stays solid all the way down, so the chart's grid never shows through behind it. */}
+            <div className="sticky left-0 z-[6] h-full border-r border-line-strong bg-surface" style={{ width: leftW }}>
+              {plan.data && rows.length === 0 && (
+                <div className="px-6 py-8 text-sm text-muted">
+                  {anyFilter ? (
+                    <>
+                      Nothing matches these filters.{' '}
+                      <button type="button" className="text-brand-purple hover:underline" onClick={() => setFilters({})}>
+                        Clear filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-base font-semibold text-fg">No projects on the planner yet</p>
+                      <p className="mt-1">Start a project from a BOQ quote (its tasks are drafted for you), a CRM lead, or a blank page.</p>
+                      {editable && (
+                        <button type="button" className="btn-primary mt-4 min-h-9 py-1" onClick={() => setCreatingProject(true)}>
+                          New project
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="pointer-events-none absolute inset-y-0" style={{ left: leftW, width: laneW, backgroundImage: bgImage, backgroundSize: bgSize, backgroundPosition: bgPos, backgroundRepeat: 'repeat' }} />
             {todayX !== null && (
               <div className="pointer-events-none absolute inset-y-0 z-[5]" style={{ left: leftW + todayX, width: px }}>
@@ -667,22 +695,6 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
               <GanttRowView key={r.key} row={r} top={(first + i) * ROW_H} preview={preview?.key === r.key ? preview.preview : undefined} flash={flashKey === r.key} />
             ))}
             {dropLine !== null && <div className="pointer-events-none absolute left-0 z-30 h-0.5 bg-brand-purple" style={{ top: dropLine - 1, width: leftW }} />}
-            {plan.data && rows.length === 0 && (
-              <div className="sticky left-0 p-8 text-muted" style={{ width: 'min(100vw, 900px)' }}>
-                {anyFilter ? (
-                  'Nothing matches these filters.'
-                ) : (
-                  <>
-                    No projects on the planner yet.{' '}
-                    {editable && (
-                      <button type="button" className="text-brand-purple hover:underline" onClick={() => setCreatingProject(true)}>
-                        Start one from a BOQ quote, a CRM lead or blank
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </GanttContext.Provider>

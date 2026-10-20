@@ -204,7 +204,7 @@ function CategoryCard({ category, items, editable, open, toggle, q, filter }: { 
         <h2 className="font-semibold">{CATEGORY_LABEL[category]}</h2>
         <span className="text-xs text-muted">{tasks.length} tasks</span>
       </header>
-      <div className={`${GRID} border-b border-line bg-surface-2 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted`}>
+      <div className={`${GRID} border-b border-line bg-surface-2 px-2 py-1 col-head`}>
         <span />
         <span className="px-2">Task / sub-task</span>
         <span>Days to complete</span>

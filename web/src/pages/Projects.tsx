@@ -136,7 +136,7 @@ export default function ProjectsPage({ user }: { user: UserPublic }) {
       {plan.isLoading && <p className="text-muted">Loading…</p>}
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
-          <thead className="bg-surface-3 text-left text-xs uppercase tracking-wide text-muted-strong">
+          <thead className="bg-surface-3 text-left col-head">
             <tr>
               <th className="p-3">Project</th>
               <th className="p-3">Client</th>
@@ -177,7 +177,7 @@ export default function ProjectsPage({ user }: { user: UserPublic }) {
                   <td className="p-3">
                     {editable ? (
                       <select
-                        className={`rounded-full border-0 px-2 py-0.5 text-xs font-medium ${STATUS_CHIP[p.status]}`}
+                        className={`border-0 px-2 py-0.5 text-xs font-medium ${STATUS_CHIP[p.status]}`}
                         value={p.status}
                         onChange={(e) => patch.mutate({ id: p.id, patch: { status: e.target.value as ProjectStatus } })}
                         aria-label="Status"

@@ -3,6 +3,10 @@
 /* Dark mode is a class on <html> (set by web/src/lib/theme.ts; bootstrapped inline in index.html to avoid a flash). */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Look: a site schedule board — square boxes, 1px rules, flat brand colour, no glow. Every radius token is 0, so any
+ * `rounded-*` utility draws a square corner; shadows are kept only for things that float (menus, dialogs, drawer).
+ */
 @theme {
   --color-ink: #231f20;
   --color-brand-grey: #717272;
@@ -13,55 +17,65 @@
   --color-brand-yellow: #ffca07;
   --font-sans: 'Segoe UI', system-ui, -apple-system, 'Noto Sans', Roboto, sans-serif;
 
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+
   /* Semantic surface/text tokens — light values here, dark values overridden on html.dark below. */
-  --color-canvas: #f4f4f5;
+  --color-canvas: #f2f2f2;
   --color-surface: #ffffff;
-  --color-surface-2: #fafafa;
-  --color-surface-3: #f0f0f1;
-  --color-line: #e5e5e5;
-  --color-line-strong: #d4d4d4;
+  --color-surface-2: #f8f8f8;
+  --color-surface-3: #efefef;
+  --color-line: #e2e2e2;
+  --color-line-strong: #c9c9c9;
   --color-fg: #231f20;
-  --color-muted: #737373;
-  --color-muted-strong: #525252;
+  --color-muted: #6f6f6f;
+  --color-muted-strong: #4a4a4a;
   --color-ok: #15803d;
   --color-warn-fg: #713f12;
   --color-header: #231f20;
 }
 
+/* Neutral graphite (no blue tint) for dark mode. */
 html.dark {
   color-scheme: dark;
-  --color-canvas: #101114;
-  --color-surface: #1a1b1f;
-  --color-surface-2: #1f2025;
-  --color-surface-3: #26282e;
-  --color-line: #2e3037;
-  --color-line-strong: #3c3f47;
-  --color-fg: #e9e9ec;
-  --color-muted: #9a9ca4;
-  --color-muted-strong: #b8bac2;
+  --color-canvas: #141414;
+  --color-surface: #1c1c1c;
+  --color-surface-2: #212121;
+  --color-surface-3: #282828;
+  --color-line: #313131;
+  --color-line-strong: #454545;
+  --color-fg: #ececec;
+  --color-muted: #9b9b9b;
+  --color-muted-strong: #bdbdbd;
   --color-ok: #4ade80;
   --color-warn-fg: #fde68a;
-  --color-header: #15161a;
+  --color-header: #101010;
 }
 
 html { color-scheme: light; }
 body { @apply bg-canvas text-fg antialiased; }
 
 @utility btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold whitespace-nowrap select-none min-h-10
-    transition-[background-color,border-color,color,box-shadow,transform] duration-150
-    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-purple/50 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
-    active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold whitespace-nowrap select-none min-h-10 border border-transparent
+    transition-colors duration-100
+    focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-purple
+    disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 @layer components {
-  .btn-primary { @apply btn bg-brand-purple text-white shadow-sm shadow-brand-purple/30 hover:bg-[#6a4389] hover:shadow-md hover:shadow-brand-purple/30; }
-  .btn-secondary { @apply btn bg-surface text-fg border border-line-strong shadow-sm hover:bg-surface-3 hover:border-muted; }
-  .btn-danger { @apply btn bg-brand-red text-white shadow-sm shadow-brand-red/30 hover:bg-[#c81c20]; }
+  .btn-primary { @apply btn bg-brand-purple text-white hover:bg-[#6a4389]; }
+  .btn-secondary { @apply btn bg-surface text-fg border-line-strong hover:bg-surface-3 hover:border-muted; }
+  .btn-danger { @apply btn bg-brand-red text-white hover:bg-[#c81c20]; }
   .btn-ghost { @apply btn bg-transparent text-muted-strong hover:bg-surface-3 hover:text-fg; }
-  .input { @apply block w-full rounded-lg border border-line-strong bg-surface text-fg placeholder:text-muted px-3 py-2 text-base shadow-xs transition-[border-color,box-shadow] focus:outline-none focus:ring-2 focus:ring-brand-purple/40 focus:border-brand-purple disabled:bg-surface-2 disabled:text-muted-strong min-h-11; }
+  .input { @apply block w-full border border-line-strong bg-surface text-fg placeholder:text-muted px-3 py-2 text-base transition-colors focus:outline-none focus:border-brand-purple focus:ring-1 focus:ring-brand-purple disabled:bg-surface-2 disabled:text-muted-strong min-h-11; }
   .label { @apply block text-sm font-medium text-muted-strong mb-1; }
-  .card { @apply rounded-xl bg-surface shadow-sm border border-line p-4; }
+  .card { @apply bg-surface border border-line p-4; }
 }
 
 /* ---- Koochie Calendar additions ---- */
@@ -75,12 +89,19 @@ body { @apply bg-canvas text-fg antialiased; }
 }
 
 @layer components {
-  .chip { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap; }
-  .seg { @apply inline-flex rounded-lg border border-line-strong bg-surface p-0.5 shadow-xs; }
-  .seg > button { @apply rounded-md px-3 py-1 text-sm font-medium text-muted-strong transition-colors hover:text-fg; }
-  .seg > button[aria-pressed='true'] { @apply bg-fg text-surface shadow-sm; }
-  .cell-input { @apply w-full h-full bg-transparent px-2 text-sm text-fg outline-none placeholder:text-muted focus:bg-surface focus:ring-2 focus:ring-inset focus:ring-brand-purple/50 rounded-sm disabled:cursor-default; }
+  .chip { @apply inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium whitespace-nowrap; }
+  .seg { @apply inline-flex border border-line-strong bg-surface; }
+  .seg > button { @apply px-3 py-1 text-sm font-medium text-muted-strong transition-colors hover:bg-surface-3 hover:text-fg; }
+  .seg > button + button { @apply border-l border-line-strong; }
+  .seg > button[aria-pressed='true'] { @apply bg-fg text-surface hover:bg-fg hover:text-surface; }
+  .cell-input { @apply w-full h-full bg-transparent px-2 text-sm text-fg outline-none placeholder:text-muted focus:bg-surface focus:ring-2 focus:ring-inset focus:ring-brand-purple/60 disabled:cursor-default; }
+  /* Column headings: sentence case, small and quiet. */
+  .col-head { @apply text-xs font-semibold text-muted-strong; }
 }
+
+/* Gantt: the sticky left cells carry their row's tint (--row-bg); hovering a row darkens it a little. */
+.gantt-left { background-color: var(--row-bg, var(--color-surface)); }
+.group:hover > .gantt-left { background-image: linear-gradient(color-mix(in srgb, var(--color-fg) 5%, transparent), color-mix(in srgb, var(--color-fg) 5%, transparent)); }
 
 /* Gantt: rows flash when opened from Today. */
 @keyframes row-flash {
@@ -88,6 +109,10 @@ body { @apply bg-canvas text-fg antialiased; }
   100% { background-color: transparent; }
 }
 .row-flash { animation: row-flash 1.6s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .row-flash { animation: none; }
+}
 
 @media print {
   header, .no-print { display: none !important; }

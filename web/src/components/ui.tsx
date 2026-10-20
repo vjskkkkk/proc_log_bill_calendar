@@ -3,7 +3,7 @@ import { CATEGORY_COLOR, CATEGORY_SHORT, isCategory } from '@shared/categories';
 
 export function CategoryDot({ category, className = '' }: { category: string; className?: string }) {
   const c = isCategory(category) ? CATEGORY_COLOR[category].bg : '#717272';
-  return <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${className}`} style={{ backgroundColor: c }} aria-hidden="true" />;
+  return <span className={`inline-block h-2.5 w-2.5 shrink-0 ${className}`} style={{ backgroundColor: c }} aria-hidden="true" />;
 }
 
 export function CategoryPill({ category }: { category: string }) {
@@ -51,7 +51,7 @@ export function initials(name: string) {
 export function Avatar({ name, muted = false, size = 'sm' }: { name: string; muted?: boolean; size?: 'sm' | 'xs' }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold ${size === 'xs' ? 'h-5 w-5 text-[9px]' : 'h-6 w-6 text-[10px]'} ${
+      className={`inline-flex shrink-0 items-center justify-center font-semibold ${size === 'xs' ? 'h-5 w-5 text-[9px]' : 'h-6 w-6 text-[10px]'} ${
         muted ? 'bg-surface-3 text-muted-strong ring-1 ring-line-strong ring-dashed' : 'bg-brand-purple text-white'
       }`}
       title={name}
