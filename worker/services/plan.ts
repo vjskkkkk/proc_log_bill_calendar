@@ -2,6 +2,7 @@ import { asc, inArray } from 'drizzle-orm';
 import type { Category } from '@shared/categories';
 import type { PersonDto, PlanDto, ProjectDto, ProjectStatus, TaskDto } from '@shared/schemas/plan';
 import { todayIST } from '@shared/schedule/dates';
+import { RULE_UNITS, type Quantities } from '@shared/schedule/rules';
 import type { Role } from '@shared/types';
 import { chunk, schema, type Db } from '../db/client';
 import { PLAN_VERSION_KEY } from './batch';
@@ -29,6 +30,17 @@ export function toProjectDto(p: ProjectRow): ProjectDto {
   };
 }
 
+export function parseQuantities(raw: string): Quantities {
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    const out: Quantities = {};
+    for (const u of RULE_UNITS) if (typeof v?.[u] === 'number' && Number.isFinite(v[u])) out[u] = v[u] as number;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export function toTaskDto(t: TaskRow): TaskDto {
   return {
     id: t.id,
@@ -45,6 +57,9 @@ export function toTaskDto(t: TaskRow): TaskDto {
     doneById: t.doneBy,
     notes: t.notes,
     sortOrder: t.sortOrder,
+    dependsOnId: t.dependsOnId,
+    plannedDays: t.plannedDays,
+    quantities: parseQuantities(t.quantities),
     createdById: t.createdBy,
     updatedById: t.updatedBy,
     createdAt: t.createdAt,

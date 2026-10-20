@@ -1,10 +1,11 @@
 import { eq, sql } from 'drizzle-orm';
-import type { CreateProjectInput, PatchProjectInput, ProjectDto } from '@shared/schemas/plan';
-import { createProjectSchema } from '@shared/schemas/plan';
+import type { CreateProjectInput, ImportQuoteInput, PatchProjectInput, ProjectDto } from '@shared/schemas/plan';
+import { createProjectSchema, importQuoteSchema } from '@shared/schemas/plan';
 import { newId, nowIso, schema, type Db } from '../db/client';
 import type { SessionUser } from '../auth/session';
 import { writeBatch } from './batch';
 import { HttpError } from './http-error';
+import { importStatements } from './import';
 import { toProjectDto } from './plan';
 
 async function getProject(d: Db, id: string) {
@@ -30,6 +31,7 @@ export async function createProject(d: Db, user: SessionUser, raw: CreateProject
   const [m] = await d.select({ max: sql<number>`coalesce(max(${schema.projects.sortOrder}), 0)` }).from(schema.projects);
   const id = newId();
   const now = nowIso();
+  const drafted = input.import ? await importStatements(d, user, id, input.import) : null;
   const version = await writeBatch(d, [
     d.insert(schema.projects).values({
       id,
@@ -47,8 +49,29 @@ export async function createProject(d: Db, user: SessionUser, raw: CreateProject
       createdAt: now,
       updatedAt: now,
     }),
+    ...(drafted?.stmts ?? []),
   ]);
   return { project: toProjectDto(await getProject(d, id)), version };
+}
+
+/**
+ * Adds a quote's draft to an existing project (after its current tasks). A project without a quote is linked to
+ * this one; a project linked to another quote family is refused.
+ */
+export async function importIntoProject(d: Db, user: SessionUser, id: string, raw: ImportQuoteInput): Promise<{ project: ProjectDto; version: string; taskIds: string[] }> {
+  const input = importQuoteSchema.parse(raw);
+  const project = await getProject(d, id);
+  const root = input.rootQuoteId ?? input.quoteId;
+  const link: Partial<typeof schema.projects.$inferInsert> = {};
+  if (!project.boqRootQuoteId) {
+    await assertNotLinked(d, 'boqRootQuoteId', root);
+    Object.assign(link, { boqQuoteId: input.quoteId, boqRootQuoteId: root, boqQuoteNo: input.quoteLabel });
+  } else if (project.boqRootQuoteId !== root) {
+    throw new HttpError(400, `This project is linked to quote ${project.boqQuoteNo || 'another quote'}`);
+  }
+  const drafted = await importStatements(d, user, id, input);
+  const version = await writeBatch(d, [...drafted.stmts, d.update(schema.projects).set({ ...link, updatedAt: nowIso() }).where(eq(schema.projects.id, id))]);
+  return { project: toProjectDto(await getProject(d, id)), version, taskIds: drafted.ids };
 }
 
 export async function patchProject(d: Db, id: string, input: PatchProjectInput): Promise<{ project: ProjectDto; version: string }> {

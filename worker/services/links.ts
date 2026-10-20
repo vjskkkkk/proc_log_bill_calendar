@@ -4,7 +4,8 @@
  * answer is `{ items: [], unavailable }` and the dialog's other tabs keep working (CLAUDE.md rule 5).
  */
 import { isNotNull } from 'drizzle-orm';
-import type { BoqQuoteSummary, CrmLeadSummary, LinkList } from '@shared/schemas/plan';
+import type { BoqQuoteLines, BoqQuoteSummary, CrmLeadSummary, LinkList } from '@shared/schemas/plan';
+import type { QuoteLine } from '@shared/schedule/import';
 import { schema, type Db } from '../db/client';
 import type { Env } from '../env';
 
@@ -65,6 +66,41 @@ export async function boqQuotes(env: Env, d: Db, q: string): Promise<LinkList<Bo
     };
   });
   return { items: items.filter((i) => i.id) };
+}
+
+/**
+ * One issued quote's line items (names, units, quantities — BOQ Maker sends no prices), for drafting a project's
+ * tasks. Needs BOQ Maker's GET /api/integration/planner/quotes/:id/lines (BOQ PLAN §11); until then: unavailable.
+ */
+export async function boqQuoteLines(env: Env, quoteId: string): Promise<BoqQuoteLines> {
+  const url = `https://boq/api/integration/planner/quotes/${encodeURIComponent(quoteId)}/lines`;
+  const got = await ask(env.BOQ, env.INTEGRATION_SECRET, url, 'BOQ Maker');
+  if (!got.ok) return { quote: null, lines: [], unavailable: got.reason };
+  const body = got.body as { quote?: Record<string, unknown>; lines?: unknown[] };
+  if (!Array.isArray(body?.lines)) return { quote: null, lines: [], unavailable: 'BOQ Maker sent an unexpected answer' };
+  const q = body.quote ?? {};
+  const lines = body.lines
+    .map((x): QuoteLine => {
+      const r = x as Record<string, unknown>;
+      const qty = Number(r.qty);
+      return {
+        id: s(r.id),
+        area: s(r.area),
+        sport: s(r.sport),
+        code: s(r.code),
+        name: s(r.name),
+        unit: s(r.unit),
+        qty: Number.isFinite(qty) && qty > 0 ? qty : 0,
+        optional: r.optional === true,
+        category: s(r.category),
+        subCategory: s(r.subCategory),
+      };
+    })
+    .filter((l) => l.id && l.name);
+  return {
+    quote: { id: s(q.id) || quoteId, rootQuoteId: s(q.rootQuoteId) || quoteId, displayNo: s(q.displayNo) || s(q.quoteNo), projectName: s(q.projectName), clientCompany: s(q.clientCompany) },
+    lines,
+  };
 }
 
 /** Open and won leads (lost ones hidden unless asked): won first, then by stage, furthest along first. */

@@ -3,21 +3,30 @@
  * plan_version, and answers with every row it changed so the browser can patch its cache.
  *
  * - Two levels only: a sub-task's parent must be a top-level task in the same project.
- * - Dates go through normalisePair (both or neither, end ≥ start).
+ * - Dates go through normalisePair (both or neither, end ≥ start). A start typed on an undated row with planned
+ *   days gets its end from them; a dated row's planned days follow its working length.
  * - Sub-tasks carry their task's category (kept in sync when the task's category changes).
  * - A task with sub-tasks is done exactly when all of them are: ticking it ticks them all, reopening one reopens it.
- * - Picking a catalogue task template for a task without sub-tasks adds the template's standard steps (undated).
+ * - Picking a Task List task for a task without sub-tasks adds its standard sub-tasks (undated, with their planned
+ *   days and dependencies).
+ * - Dependencies (finish → start, same project, no loops) are re-applied after every date change by
+ *   shared/schedule/deps.ts `propagate`, in the same batch.
  */
-import { and, asc, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import type { Category } from '@shared/categories';
 import type { CreateTaskInput, PatchTaskInput, TaskChanges } from '@shared/schemas/plan';
-import { normalisePair } from '@shared/schedule/pair';
+import { addDays } from '@shared/schedule/dates';
+import { DEPENDENCY_PROBLEM_TEXT, dependencyProblem, propagate, type SchedTask } from '@shared/schedule/deps';
+import { normalisePair, type DatePair } from '@shared/schedule/pair';
+import { ruleDays, type Quantities } from '@shared/schedule/rules';
+import { endAfter, workingDays } from '@shared/schedule/workdays';
 import { newId, nowIso, schema, type Db } from '../db/client';
 import type { SessionUser } from '../auth/session';
+import { toCatalogDto } from './catalog';
 import { readVersion, writeBatch } from './batch';
 import { HttpError } from './http-error';
-import { tasksByIds } from './plan';
+import { parseQuantities, tasksByIds } from './plan';
 
 type TaskRow = typeof schema.tasks.$inferSelect;
 type Stmt = BatchItem<'sqlite'>;
@@ -42,7 +51,7 @@ async function checkAssignee(d: Db, assigneeId: string | null | undefined): Prom
 async function catalogItem(d: Db, id: string | null | undefined) {
   if (!id) return null;
   const [c] = await d.select().from(schema.catalogItems).where(eq(schema.catalogItems.id, id));
-  if (!c) throw new HttpError(400, 'That catalogue item no longer exists');
+  if (!c) throw new HttpError(400, 'That Task List entry no longer exists');
   return c;
 }
 
@@ -50,28 +59,91 @@ function siblingsWhere(projectId: string, parentId: string | null) {
   return and(eq(schema.tasks.projectId, projectId), parentId === null ? isNull(schema.tasks.parentId) : eq(schema.tasks.parentId, parentId));
 }
 
-/** Inserts for a template's standard steps under `task`. */
-async function catalogStepInserts(d: Db, templateId: string, task: { id: string; projectId: string; category: string }, user: SessionUser, now: string) {
-  const steps = await d.select().from(schema.catalogItems).where(eq(schema.catalogItems.parentId, templateId)).orderBy(asc(schema.catalogItems.sortOrder));
-  const ids: string[] = [];
-  const stmts: Stmt[] = steps.map((s, i) => {
-    const id = newId();
-    ids.push(id);
-    return d.insert(schema.tasks).values({
-      id,
-      projectId: task.projectId,
-      parentId: task.id,
-      title: s.name,
-      category: task.category,
-      catalogItemId: s.id,
-      sortOrder: i + 1,
-      createdBy: user.id,
-      updatedBy: user.id,
-      createdAt: now,
-      updatedAt: now,
-    });
+// ---- Scheduling helpers ----
+
+/** The project's rows as the schedule engine sees them. */
+async function projectSched(d: Db, projectId: string): Promise<SchedTask[]> {
+  const rows = await d
+    .select({
+      id: schema.tasks.id,
+      projectId: schema.tasks.projectId,
+      parentId: schema.tasks.parentId,
+      startDate: schema.tasks.startDate,
+      endDate: schema.tasks.endDate,
+      dependsOnId: schema.tasks.dependsOnId,
+      plannedDays: schema.tasks.plannedDays,
+    })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.projectId, projectId));
+  return rows;
+}
+
+/** Updates for every row whose dates the project's dependencies move (after the in-memory edit `sched`). */
+function propagationStmts(d: Db, sched: SchedTask[], user: SessionUser, now: string): { stmts: Stmt[]; ids: string[] } {
+  const changes = propagate(sched);
+  return {
+    stmts: changes.map((c) =>
+      d
+        .update(schema.tasks)
+        .set({ startDate: c.startDate, endDate: c.endDate, plannedDays: workingDays(c.startDate, c.endDate), updatedAt: now, updatedBy: user.id })
+        .where(eq(schema.tasks.id, c.id)),
+    ),
+    ids: changes.map((c) => c.id),
+  };
+}
+
+function checkDependsOn(sched: SchedTask[], id: string, depId: string | null | undefined): void {
+  if (!depId) return;
+  const problem = dependencyProblem(sched, id, depId);
+  if (problem) throw new HttpError(400, DEPENDENCY_PROBLEM_TEXT[problem]);
+}
+
+/** A date edit: normalised, and an undated row with planned days gets its end from them when only a start is typed. */
+function editPair(existing: DatePair, patch: Partial<DatePair>, plannedDays: number | null): DatePair {
+  if (plannedDays && !existing.startDate && patch.startDate && patch.endDate === undefined) {
+    return { startDate: patch.startDate, endDate: endAfter(patch.startDate, plannedDays) };
+  }
+  return normalisePair(existing, patch);
+}
+
+/**
+ * Inserts for a Task List task's standard sub-tasks under `task`: planned days from each rule and the task's
+ * quantities, and their dependencies (set after all rows exist, so a sub-task may wait for a later one).
+ */
+async function catalogStepInserts(
+  d: Db,
+  templateId: string,
+  task: { id: string; projectId: string; category: string; quantities: Quantities },
+  user: SessionUser,
+  now: string,
+): Promise<{ stmts: Stmt[]; ids: string[]; sched: SchedTask[] }> {
+  const steps = (await d.select().from(schema.catalogItems).where(eq(schema.catalogItems.parentId, templateId)).orderBy(asc(schema.catalogItems.sortOrder))).map(toCatalogDto);
+  const idOf = new Map(steps.map((s) => [s.id, newId()]));
+  const stmts: Stmt[] = [];
+  const sched: SchedTask[] = [];
+  steps.forEach((s, i) => {
+    const id = idOf.get(s.id)!;
+    const plannedDays = ruleDays(s.rule, task.quantities).days;
+    stmts.push(
+      d.insert(schema.tasks).values({
+        id,
+        projectId: task.projectId,
+        parentId: task.id,
+        title: s.name,
+        category: task.category,
+        catalogItemId: s.id,
+        plannedDays,
+        sortOrder: i + 1,
+        createdBy: user.id,
+        updatedBy: user.id,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    sched.push({ id, projectId: task.projectId, parentId: task.id, startDate: null, endDate: null, dependsOnId: s.dependsOnId ? idOf.get(s.dependsOnId) ?? null : null, plannedDays });
   });
-  return { stmts, ids };
+  for (const s of sched) if (s.dependsOnId) stmts.push(d.update(schema.tasks).set({ dependsOnId: s.dependsOnId }).where(eq(schema.tasks.id, s.id)));
+  return { stmts, ids: sched.map((s) => s.id), sched };
 }
 
 /** A parent's done flag after its children change: done iff it has children and all are done. */
@@ -84,6 +156,8 @@ function parentDoneUpdate(d: Db, parent: TaskRow, childrenDone: boolean[], user:
     .set({ done, doneAt: done ? now : null, doneBy: done ? user.id : null, updatedAt: now, updatedBy: user.id })
     .where(eq(schema.tasks.id, parent.id));
 }
+
+// ---- Writes ----
 
 export async function createTask(d: Db, user: SessionUser, input: CreateTaskInput): Promise<TaskChanges> {
   const [project] = await d.select({ id: schema.projects.id }).from(schema.projects).where(eq(schema.projects.id, input.projectId));
@@ -98,10 +172,21 @@ export async function createTask(d: Db, user: SessionUser, input: CreateTaskInpu
   }
   await checkAssignee(d, input.assigneeId);
   const cat = await catalogItem(d, input.catalogItemId);
+  const catDto = cat ? toCatalogDto(cat) : null;
   const category: Category = (parent?.category as Category | undefined) ?? input.category ?? (cat?.category as Category | undefined) ?? 'material';
-  const dates = normalisePair({ startDate: null, endDate: null }, { startDate: input.startDate ?? null, endDate: input.endDate ?? null });
+  const quantities: Quantities = input.quantities ?? (parent ? parseQuantities(parent.quantities) : {});
+  const steps = !parent && catDto && catDto.parentId === null && input.addCatalogSteps !== false ? await catalogStepInserts(d, catDto.id, { id: input.id, projectId: input.projectId, category, quantities }, user, nowIso()) : null;
+  // Planned days: as given, else from the Task List rule (a task with standard sub-tasks takes theirs).
+  const plannedDays = input.plannedDays !== undefined ? input.plannedDays : catDto && !steps?.ids.length ? ruleDays(catDto.rule, quantities).days : null;
+  const dates = editPair({ startDate: null, endDate: null }, { startDate: input.startDate ?? null, ...(input.endDate !== undefined ? { endDate: input.endDate } : {}) }, plannedDays);
   const now = nowIso();
   const stmts: Stmt[] = [];
+
+  const sched = await projectSched(d, input.projectId);
+  const me: SchedTask = { id: input.id, projectId: input.projectId, parentId, ...dates, dependsOnId: null, plannedDays: dates.startDate ? workingDays(dates.startDate, dates.endDate!) : plannedDays };
+  sched.push(me, ...(steps?.sched ?? []));
+  checkDependsOn(sched, input.id, input.dependsOnId);
+  me.dependsOnId = input.dependsOnId ?? null;
 
   // Position: right after `afterId` (shifting later siblings down), else at the end.
   let sortOrder: number;
@@ -132,6 +217,9 @@ export async function createTask(d: Db, user: SessionUser, input: CreateTaskInpu
       assigneeId: input.assigneeId ?? null,
       notes: input.notes ?? '',
       sortOrder,
+      dependsOnId: input.dependsOnId ?? null,
+      plannedDays: me.plannedDays,
+      quantities: JSON.stringify(parent ? {} : quantities),
       createdBy: user.id,
       updatedBy: user.id,
       createdAt: now,
@@ -140,8 +228,7 @@ export async function createTask(d: Db, user: SessionUser, input: CreateTaskInpu
   );
 
   const changed = [input.id];
-  if (!parent && cat && cat.parentId === null && input.addCatalogSteps !== false) {
-    const steps = await catalogStepInserts(d, cat.id, { id: input.id, projectId: input.projectId, category }, user, now);
+  if (steps) {
     stmts.push(...steps.stmts);
     changed.push(...steps.ids);
   }
@@ -154,6 +241,9 @@ export async function createTask(d: Db, user: SessionUser, input: CreateTaskInpu
       changed.push(parent.id);
     }
   }
+  const moved = propagationStmts(d, sched, user, now);
+  stmts.push(...moved.stmts);
+  changed.push(...moved.ids);
 
   const version = await writeBatch(d, stmts);
   return { tasks: await tasksByIds(d, changed), deletedIds: [], version };
@@ -172,6 +262,9 @@ export async function patchTask(d: Db, user: SessionUser, id: string, input: Pat
   }
   await checkAssignee(d, input.assigneeId);
   const cat = input.catalogItemId !== undefined ? await catalogItem(d, input.catalogItemId) : undefined;
+  const sched = await projectSched(d, task.projectId);
+  const me = sched.find((s) => s.id === id)!;
+  if (input.dependsOnId !== undefined) checkDependsOn(sched, id, input.dependsOnId);
 
   const set: Partial<typeof schema.tasks.$inferInsert> = { updatedAt: now, updatedBy: user.id };
   if (input.title !== undefined) set.title = input.title;
@@ -179,16 +272,30 @@ export async function patchTask(d: Db, user: SessionUser, id: string, input: Pat
   if (input.assigneeId !== undefined) set.assigneeId = input.assigneeId;
   if (input.catalogItemId !== undefined) set.catalogItemId = cat?.id ?? null;
   if (input.category !== undefined && !isSub) set.category = input.category;
-  // Picking a template sets the category too (unless the edit names one).
+  // Picking a Task List task sets the category too (unless the edit names one).
   if (cat && !isSub && input.category === undefined && cat.parentId === null) set.category = cat.category;
+  if (input.dependsOnId !== undefined) set.dependsOnId = me.dependsOnId = input.dependsOnId;
+
+  let planned = input.plannedDays !== undefined ? input.plannedDays : task.plannedDays;
+  // Picking a Task List task without sub-tasks for an undated row: its rule gives the planned days.
+  if (cat && input.plannedDays === undefined && !task.startDate && !children.length) {
+    const dto = toCatalogDto(cat);
+    if (dto.parentId === null || isSub) planned = ruleDays(dto.rule, parseQuantities(task.quantities)).days;
+  }
+  let pair: DatePair = { startDate: task.startDate, endDate: task.endDate };
   if (input.startDate !== undefined || input.endDate !== undefined) {
-    const pair = normalisePair(
-      { startDate: task.startDate, endDate: task.endDate },
-      { ...(input.startDate !== undefined ? { startDate: input.startDate } : {}), ...(input.endDate !== undefined ? { endDate: input.endDate } : {}) },
-    );
+    pair = editPair(pair, { ...(input.startDate !== undefined ? { startDate: input.startDate } : {}), ...(input.endDate !== undefined ? { endDate: input.endDate } : {}) }, planned);
+  } else if (input.plannedDays && pair.startDate) {
+    // A new length for a dated row moves its end.
+    pair = { startDate: pair.startDate, endDate: endAfter(pair.startDate, input.plannedDays) };
+  }
+  if (pair.startDate !== task.startDate || pair.endDate !== task.endDate) {
     set.startDate = pair.startDate;
     set.endDate = pair.endDate;
   }
+  if (pair.startDate && pair.endDate) planned = workingDays(pair.startDate, pair.endDate);
+  if (planned !== task.plannedDays) set.plannedDays = planned;
+  Object.assign(me, pair, { plannedDays: planned });
 
   if (input.done !== undefined) {
     if (children.length) {
@@ -229,10 +336,20 @@ export async function patchTask(d: Db, user: SessionUser, id: string, input: Pat
   }
 
   if (!isSub && cat && cat.parentId === null && !children.length && input.addCatalogSteps !== false) {
-    const steps = await catalogStepInserts(d, cat.id, { id, projectId: task.projectId, category: newCategory }, user, now);
+    const steps = await catalogStepInserts(d, cat.id, { id, projectId: task.projectId, category: newCategory, quantities: parseQuantities(task.quantities) }, user, now);
+    // The sub-tasks now carry the durations: an undated task keeps no planned days of its own.
+    if (steps.ids.length && !pair.startDate && me.plannedDays !== null) {
+      stmts.push(d.update(schema.tasks).set({ plannedDays: null }).where(eq(schema.tasks.id, id)));
+      me.plannedDays = null;
+    }
     stmts.push(...steps.stmts);
+    sched.push(...steps.sched);
     steps.ids.forEach((x) => changed.add(x));
   }
+
+  const moved = propagationStmts(d, sched, user, now);
+  stmts.push(...moved.stmts);
+  moved.ids.forEach((x) => changed.add(x));
 
   const version = await writeBatch(d, stmts);
   return { tasks: await tasksByIds(d, [...changed]), deletedIds: [], version };
@@ -253,33 +370,34 @@ export async function deleteTask(d: Db, user: SessionUser, id: string): Promise<
       changed.push(parent.id);
     }
   }
+  // Rows that waited for a deleted one become independent (ON DELETE SET NULL); a shorter task pulls its followers in.
+  const gone = new Set([id, ...children.map((c) => c.id)]);
+  const all = await projectSched(d, task.projectId);
+  const freed = all.filter((s) => !gone.has(s.id) && s.dependsOnId && gone.has(s.dependsOnId)).map((s) => s.id);
+  const sched = all.filter((s) => !gone.has(s.id)).map((s) => (s.dependsOnId && gone.has(s.dependsOnId) ? { ...s, dependsOnId: null } : s));
+  const moved = propagationStmts(d, sched, user, now);
+  stmts.push(...moved.stmts);
   const version = await writeBatch(d, stmts);
-  return { tasks: await tasksByIds(d, changed), deletedIds: [id, ...children.map((c) => c.id)], version };
+  return { tasks: await tasksByIds(d, [...changed, ...freed, ...moved.ids]), deletedIds: [...gone], version };
 }
 
 /** Moves a task's dates by `days`, together with its sub-tasks' (dragging a summary bar). */
 export async function shiftTask(d: Db, user: SessionUser, id: string, days: number): Promise<TaskChanges> {
   const task = await getTask(d, id);
   const now = nowIso();
-  const offset = `${days >= 0 ? '+' : ''}${days} days`;
-  const where = and(
-    task.parentId ? eq(schema.tasks.id, id) : or(eq(schema.tasks.id, id), eq(schema.tasks.parentId, id)),
-    sql`${schema.tasks.startDate} IS NOT NULL`,
-  );
-  const affected = await d.select({ id: schema.tasks.id }).from(schema.tasks).where(where);
+  const sched = await projectSched(d, task.projectId);
+  const affected = sched.filter((s) => (s.id === id || (!task.parentId && s.parentId === id)) && s.startDate && s.endDate);
   if (!affected.length || days === 0) return { tasks: await tasksByIds(d, [id]), deletedIds: [], version: await readVersion(d) };
-  const version = await writeBatch(d, [
-    d
-      .update(schema.tasks)
-      .set({
-        startDate: sql`date(${schema.tasks.startDate}, ${offset})`,
-        endDate: sql`date(${schema.tasks.endDate}, ${offset})`,
-        updatedAt: now,
-        updatedBy: user.id,
-      })
-      .where(where),
-  ]);
-  return { tasks: await tasksByIds(d, affected.map((a) => a.id)), deletedIds: [], version };
+  const stmts: Stmt[] = [];
+  for (const s of affected) {
+    s.startDate = addDays(s.startDate!, days);
+    s.endDate = addDays(s.endDate!, days);
+    stmts.push(d.update(schema.tasks).set({ startDate: s.startDate, endDate: s.endDate, updatedAt: now, updatedBy: user.id }).where(eq(schema.tasks.id, s.id)));
+  }
+  const moved = propagationStmts(d, sched, user, now);
+  stmts.push(...moved.stmts);
+  const version = await writeBatch(d, stmts);
+  return { tasks: await tasksByIds(d, [...affected.map((a) => a.id), ...moved.ids]), deletedIds: [], version };
 }
 
 /** Rewrites sort_order 1…n for exactly the children of (projectId, parentId). */
@@ -293,4 +411,3 @@ export async function reorderTasks(d: Db, projectId: string, parentId: string | 
   const version = await writeBatch(d, stmts);
   return { tasks: await tasksByIds(d, ids), deletedIds: [], version };
 }
-

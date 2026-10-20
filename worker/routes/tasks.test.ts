@@ -74,21 +74,79 @@ describe('tasks', () => {
     expect(del.body.tasks.find((x: any) => x.id === parent).done).toBe(true);
   });
 
-  it('adds a template’s standard steps when a catalogue task is picked', async () => {
+  it('adds a Task List task’s sub-tasks with planned days and their chain of dependencies', async () => {
     const t = await setupTeam();
     const p = await project(t.editor);
-    const created = await addTask(t.editor, { projectId: p, title: 'Dispatch to site', catalogItemId: 'cat-logistics-01' });
+    const created = await addTask(t.editor, { projectId: p, title: 'Dispatch from warehouse to site', catalogItemId: 'tl-l-dispatch' });
     const parent = created.tasks.find((x: any) => x.parentId === null);
-    expect(parent.category).toBe('logistics');
-    const steps = created.tasks.filter((x: any) => x.parentId === parent.id);
-    expect(steps.map((s: any) => s.title)).toEqual(['Book transporter', 'Packing list & e-way bill', 'Load at warehouse', 'Track in transit', 'Unload & GRN at site']);
+    expect(parent).toMatchObject({ category: 'logistics', plannedDays: null });
+    const steps = created.tasks.filter((x: any) => x.parentId === parent.id).sort((a: any, b: any) => a.sortOrder - b.sortOrder);
+    expect(steps.map((s: any) => s.title)).toEqual(['Pack & load material', 'Arrange transporter & e-way bill', 'Transit to site', 'Unload & store at site']);
+    expect(steps.map((s: any) => s.plannedDays)).toEqual([1, 1, 4, 1]);
+    expect(steps.map((s: any) => s.dependsOnId)).toEqual([null, steps[0].id, steps[1].id, steps[2].id]);
     expect(steps.every((s: any) => s.startDate === null && s.category === 'logistics')).toBe(true);
-    // Picking a template later on a plain task does the same; opting out does not.
+
+    // A start on the first step schedules the whole chain (Sunday 25 Oct is skipped).
+    const started = await call('PATCH', `/api/tasks/${steps[0].id}`, { startDate: '2026-10-22' }, t.editor);
+    const byId = Object.fromEntries(started.body.tasks.map((x: any) => [x.id, x]));
+    expect([0, 1, 2, 3].map((i) => `${byId[steps[i].id].startDate}..${byId[steps[i].id].endDate}`)).toEqual([
+      '2026-10-22..2026-10-22',
+      '2026-10-23..2026-10-23',
+      '2026-10-24..2026-10-28',
+      '2026-10-29..2026-10-29',
+    ]);
+
+    // Picking a Task List task later on a plain task does the same; opting out does not.
     const plain = (await addTask(t.editor, { projectId: p, title: 'Billing', category: 'billing' })).tasks[0].id;
-    const picked = await call('PATCH', `/api/tasks/${plain}`, { title: 'Final invoice', catalogItemId: 'cat-billing-03' }, t.editor);
-    expect(picked.body.tasks.filter((x: any) => x.parentId === plain)).toHaveLength(4);
-    const none = await addTask(t.editor, { projectId: p, title: 'Advance invoice', catalogItemId: 'cat-billing-01', addCatalogSteps: false });
+    const picked = await call('PATCH', `/api/tasks/${plain}`, { title: 'Final invoice & payment', catalogItemId: 'tl-b-final' }, t.editor);
+    expect(picked.body.tasks.filter((x: any) => x.parentId === plain)).toHaveLength(3);
+    const none = await addTask(t.editor, { projectId: p, title: 'Advance invoice', catalogItemId: 'tl-b-advance', addCatalogSteps: false });
     expect(none.tasks).toHaveLength(1);
+    expect(none.tasks[0].plannedDays).toBe(1); // the task's own rule
+  });
+
+  it('keeps dependents after their predecessor as it moves, grows or goes', async () => {
+    const t = await setupTeam();
+    const p = await project(t.editor);
+    const other = await project(t.editor, 'Other');
+    const a = (await addTask(t.editor, { projectId: p, title: 'A', startDate: '2026-10-19', endDate: '2026-10-23' })).tasks[0].id;
+    const b = (await addTask(t.editor, { projectId: p, title: 'B', startDate: '2026-10-01', endDate: '2026-10-02' })).tasks[0].id;
+    const x = (await addTask(t.editor, { projectId: other, title: 'X' })).tasks[0].id;
+
+    const dep = await call('PATCH', `/api/tasks/${b}`, { dependsOnId: a }, t.editor);
+    expect(dep.body.tasks.find((r: any) => r.id === b)).toMatchObject({ dependsOnId: a, startDate: '2026-10-24', endDate: '2026-10-26' });
+    const grown = await call('PATCH', `/api/tasks/${a}`, { endDate: '2026-10-27' }, t.editor);
+    expect(grown.body.tasks.find((r: any) => r.id === b)).toMatchObject({ startDate: '2026-10-28', endDate: '2026-10-29' });
+    const shifted = await call('POST', `/api/tasks/${a}/shift`, { days: -7 }, t.editor);
+    expect(shifted.body.tasks.find((r: any) => r.id === b)).toMatchObject({ startDate: '2026-10-21', endDate: '2026-10-22' });
+    // A dependent's start is set by what it waits for (typing a later start only changes its length).
+    const typed = await call('PATCH', `/api/tasks/${b}`, { startDate: '2026-11-10' }, t.editor);
+    expect(typed.body.tasks.find((r: any) => r.id === b)).toMatchObject({ startDate: '2026-10-21', endDate: '2026-10-21' });
+
+    expect((await call('PATCH', `/api/tasks/${a}`, { dependsOnId: b }, t.editor)).status).toBe(400); // loop
+    expect((await call('PATCH', `/api/tasks/${a}`, { dependsOnId: a }, t.editor)).status).toBe(400);
+    expect((await call('PATCH', `/api/tasks/${a}`, { dependsOnId: x }, t.editor)).status).toBe(400); // other project
+    const sub = (await addTask(t.editor, { projectId: p, parentId: a, title: 'a1' })).tasks.find((r: any) => r.title === 'a1').id;
+    expect((await call('PATCH', `/api/tasks/${sub}`, { dependsOnId: a }, t.editor)).status).toBe(400); // its own task
+
+    // A new row can be created waiting for another, taking its planned days.
+    const c = await addTask(t.editor, { projectId: p, title: 'C', dependsOnId: b, plannedDays: 3 });
+    expect(c.tasks.find((r: any) => r.title === 'C')).toMatchObject({ startDate: '2026-10-22', endDate: '2026-10-24' });
+
+    const del = await call('DELETE', `/api/tasks/${a}`, undefined, t.editor);
+    expect(del.body.tasks.find((r: any) => r.id === b)).toMatchObject({ dependsOnId: null, startDate: '2026-10-21' });
+  });
+
+  it('uses planned days for a typed start, and a new length moves the end', async () => {
+    const t = await setupTeam();
+    const p = await project(t.editor);
+    const id = (await addTask(t.editor, { projectId: p, title: 'Cure', plannedDays: 5 })).tasks[0].id;
+    const r1 = await call('PATCH', `/api/tasks/${id}`, { startDate: '2026-10-22' }, t.editor);
+    expect(r1.body.tasks[0]).toMatchObject({ startDate: '2026-10-22', endDate: '2026-10-27', plannedDays: 5 });
+    const r2 = await call('PATCH', `/api/tasks/${id}`, { plannedDays: 2 }, t.editor);
+    expect(r2.body.tasks[0]).toMatchObject({ endDate: '2026-10-23', plannedDays: 2 });
+    const r3 = await call('PATCH', `/api/tasks/${id}`, { endDate: '2026-10-31' }, t.editor);
+    expect(r3.body.tasks[0].plannedDays).toBe(9);
   });
 
   it('inserts after a sibling, reorders, and shifts a task with its sub-tasks', async () => {

@@ -1,5 +1,5 @@
 // Drizzle mirror of migrations/*.sql (kept in step by hand; the SQL files are the source of truth).
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -38,6 +38,15 @@ export const catalogItems = sqliteTable('catalog_items', {
   parentId: text('parent_id'),
   name: text('name').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
+  // Task Lists (migration 0004)
+  durationMode: text('duration_mode').notNull().default('fixed'),
+  durationDays: real('duration_days').notNull().default(1),
+  perQty: real('per_qty'),
+  rateUnit: text('rate_unit'),
+  minDays: integer('min_days').notNull().default(1),
+  dependsOnId: text('depends_on_id'),
+  boqMatch: text('boq_match').notNull().default('[]'),
+  autoAdd: integer('auto_add', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
@@ -74,8 +83,30 @@ export const tasks = sqliteTable('tasks', {
   doneBy: text('done_by'),
   notes: text('notes').notNull().default(''),
   sortOrder: integer('sort_order').notNull().default(0),
+  // Migration 0004
+  dependsOnId: text('depends_on_id'),
+  plannedDays: integer('planned_days'),
+  quantities: text('quantities').notNull().default('{}'),
   createdBy: text('created_by'),
   updatedBy: text('updated_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+});
+
+export const projectQuoteLines = sqliteTable('project_quote_lines', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  boqQuoteId: text('boq_quote_id').notNull(),
+  boqLineId: text('boq_line_id').notNull(),
+  area: text('area').notNull().default(''),
+  code: text('code').notNull().default(''),
+  name: text('name').notNull(),
+  unit: text('unit').notNull().default(''),
+  qty: real('qty').notNull().default(0),
+  optional: integer('optional', { mode: 'boolean' }).notNull().default(false),
+  boqCategory: text('boq_category').notNull().default(''),
+  included: integer('included', { mode: 'boolean' }).notNull().default(true),
+  catalogItemIds: text('catalog_item_ids').notNull().default('[]'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: text('created_at').notNull(),
 });

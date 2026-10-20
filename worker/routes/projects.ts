@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import { createProjectSchema, patchProjectSchema, reorderSchema } from '@shared/schemas/plan';
+import { createProjectSchema, importQuoteSchema, patchProjectSchema, reorderSchema } from '@shared/schemas/plan';
 import { canEdit, requireAuth, requireRole, type AppEnv } from '../auth/middleware';
 import { db } from '../db/client';
 import { errorResponse } from '../services/http-error';
-import { createProject, deleteProject, patchProject, reorderProjects } from '../services/projects';
+import { createProject, deleteProject, importIntoProject, patchProject, reorderProjects } from '../services/projects';
 import { parseBody } from './util';
 
 export const projectRoutes = new Hono<AppEnv>();
@@ -20,6 +20,12 @@ projectRoutes.post('/reorder', canEdit, async (c) => {
   const body = await parseBody(c, reorderSchema);
   if (!body.ok) return body.response;
   return c.json(await reorderProjects(db(c.env.DB), body.data.ids));
+});
+
+projectRoutes.post('/:id/import', canEdit, async (c) => {
+  const body = await parseBody(c, importQuoteSchema);
+  if (!body.ok) return body.response;
+  return c.json(await importIntoProject(db(c.env.DB), c.get('user'), c.req.param('id'), body.data), 201);
 });
 
 projectRoutes.patch('/:id', canEdit, async (c) => {
