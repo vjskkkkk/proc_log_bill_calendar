@@ -70,6 +70,7 @@ body { @apply bg-canvas text-fg antialiased; }
   --color-cat-material: #7d51a0;
   --color-cat-equipment: #f26f33;
   --color-cat-logistics: #ffca07;
+  --color-cat-installation: #1f8a9e;
   --color-cat-billing: #a3cd39;
 }
 

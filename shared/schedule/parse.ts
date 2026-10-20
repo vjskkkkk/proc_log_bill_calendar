@@ -1,9 +1,10 @@
 import { addDays, dayNum, isIsoDate, MONTHS, toIso, type IsoDate } from './dates';
+import { addWorkingDays } from './workdays';
 
 export interface ParseOptions {
   /** Year-less input resolves to the date nearest this one (within ±6 months). Usually today. */
   ref: IsoDate;
-  /** Base for "+N"/"-N". End cells pass the row's start date with `plusIsLength`, so "+5" = five days long. */
+  /** Base for "+N"/"-N". End cells pass the row's start date with `plusIsLength`, so "+5" = five working days long. */
   plusBase?: IsoDate | null;
   plusIsLength?: boolean;
 }
@@ -61,7 +62,7 @@ export function parseDateInput(text: string, opts: ParseOptions): ParseResult {
     const n = Number(rel[2]) * (rel[1] === '-' ? -1 : 1);
     if (opts.plusBase && opts.plusIsLength) {
       if (n < 1) return { ok: false };
-      return { ok: true, date: addDays(opts.plusBase, n - 1) };
+      return { ok: true, date: n === 1 ? opts.plusBase : addWorkingDays(opts.plusBase, n - 1) };
     }
     return { ok: true, date: addDays(opts.plusBase ?? opts.ref, n) };
   }

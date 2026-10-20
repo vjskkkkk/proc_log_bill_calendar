@@ -95,7 +95,8 @@ describe('parseDateInput', () => {
     expect(p('tomorrow')).toBe('2026-10-16');
     expect(p('+3')).toBe('2026-10-18');
     expect(p('-2')).toBe('2026-10-13');
-    expect(p('+5', { plusBase: '2026-11-01', plusIsLength: true })).toBe('2026-11-05');
+    expect(p('+5', { plusBase: '2026-11-01', plusIsLength: true })).toBe('2026-11-06'); // working days: Sun 1 Nov → Mon–Fri
+    expect(p('+7', { plusBase: '2026-11-02', plusIsLength: true })).toBe('2026-11-09');
     expect(p('+1', { plusBase: '2026-11-01', plusIsLength: true })).toBe('2026-11-01');
     expect(p('+0', { plusBase: '2026-11-01', plusIsLength: true })).toBe('ERR');
   });

@@ -1,11 +1,12 @@
-/** The four kinds of back-office work the planner tracks. Order = display order everywhere. */
-export const CATEGORIES = ['material', 'equipment', 'logistics', 'billing'] as const;
+/** The kinds of work the planner tracks (installation = on-site execution). Order = display order everywhere. */
+export const CATEGORIES = ['material', 'equipment', 'logistics', 'installation', 'billing'] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_LABEL: Record<Category, string> = {
   material: 'Material procurement',
   equipment: 'Equipment procurement',
   logistics: 'Logistics',
+  installation: 'Installation',
   billing: 'Billing',
 };
 
@@ -13,6 +14,7 @@ export const CATEGORY_SHORT: Record<Category, string> = {
   material: 'Material',
   equipment: 'Equipment',
   logistics: 'Logistics',
+  installation: 'Install',
   billing: 'Billing',
 };
 
@@ -21,6 +23,7 @@ export const CATEGORY_COLOR: Record<Category, { bg: string; text: string }> = {
   material: { bg: '#7d51a0', text: '#ffffff' },
   equipment: { bg: '#f26f33', text: '#ffffff' },
   logistics: { bg: '#ffca07', text: '#231f20' },
+  installation: { bg: '#1f8a9e', text: '#ffffff' },
   billing: { bg: '#a3cd39', text: '#231f20' },
 };
 
