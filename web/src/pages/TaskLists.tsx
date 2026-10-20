@@ -10,7 +10,7 @@ import { RuleEditor } from '../components/RuleEditor';
 import { useCommittedInput } from '../lib/autosave';
 import { readPref, writePref } from '../lib/prefs';
 
-const GRID = 'grid grid-cols-[1.5rem_minmax(13rem,1fr)_minmax(17rem,auto)_13rem_minmax(10rem,14rem)_4rem_3.5rem] items-center gap-x-2';
+const GRID = 'grid grid-cols-[1.5rem_minmax(13rem,1fr)_29rem_13rem_minmax(9rem,13rem)_3.5rem_3.5rem] items-center gap-x-2';
 
 /**
  * Working days a task takes for `q`: its own rule, or its sub-tasks laid out with their dependencies (the same engine

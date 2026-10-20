@@ -175,10 +175,25 @@ export function buildImportPlan(input: ImportInput): PlannedTask[] {
     }
   }
 
-  const sched: SchedTask[] = out.map((p) => ({ id: p.key, projectId: 'import', parentId: p.parentKey, startDate: p.startDate, endDate: p.endDate, dependsOnId: p.dependsOnKey, plannedDays: p.plannedDays }));
-  const moved = new Map(propagate(sched).map((c) => [c.id, c]));
-  return out.map((p) => {
-    const m = moved.get(p.key);
-    return m ? { ...p, startDate: m.startDate, endDate: m.endDate } : p;
-  });
+  const schedule = (tasks: PlannedTask[]) => {
+    const sched: SchedTask[] = tasks.map((p) => ({ id: p.key, projectId: 'import', parentId: p.parentKey, startDate: p.startDate, endDate: p.endDate, dependsOnId: p.dependsOnKey, plannedDays: p.plannedDays }));
+    const moved = new Map(propagate(sched).map((c) => [c.id, c]));
+    return tasks.map((p) => {
+      const m = moved.get(p.key);
+      return m ? { ...p, startDate: m.startDate, endDate: m.endDate } : p;
+    });
+  };
+  let planned = schedule(out);
+
+  // Site work that is always added and waits for nothing (Site handover) comes after the site work that ends last.
+  const wrapUp = ordered.filter(([, g]) => g.template.autoAdd && g.template.category === 'installation' && !g.lines.length && !g.template.dependsOnId).map(([k]) => k);
+  if (wrapUp.length) {
+    const endOf = (key: string) => planned.filter((p) => (p.key === key || p.parentKey === key) && p.endDate).reduce<string | null>((a, p) => (!a || p.endDate! > a ? p.endDate! : a), null);
+    const site = ordered.filter(([k, g]) => g.template.category === 'installation' && !wrapUp.includes(k)).map(([k]) => ({ k, end: endOf(k) }));
+    const last = site.filter((s) => s.end).sort((a, b) => b.end!.localeCompare(a.end!))[0];
+    if (last) {
+      planned = schedule(planned.map((p) => (wrapUp.includes(p.key) ? { ...p, dependsOnKey: last.k } : p)));
+    }
+  }
+  return planned;
 }

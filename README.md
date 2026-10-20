@@ -1,12 +1,14 @@
 # Koochie Calendar
 
-Team planner for back-office work on Koochie Sports projects — **material procurement, equipment procurement,
-logistics and billing** — with a daily to-do list filtered from it.
+Team planner for Koochie Sports projects — **material procurement, equipment procurement, logistics, installation
+and billing** — with a daily to-do list filtered from it.
 
 - **Today**: a project-wise list of the tasks and sub-tasks to work on today (in progress + overdue), with My/All.
 - **Planner**: one big Gantt chart; rows are projects → tasks → sub-tasks, columns are dates. Type dates or drag bars.
-- **Projects**: start a project from an issued BOQ Maker quote, a CRM lead, or blank.
-- **Catalogue**: editable list of common tasks and their standard steps, by category.
+- **Projects**: start a project from an issued BOQ Maker quote (its Gantt is drafted from the quote's line items), a
+  CRM lead, or blank.
+- **Task Lists**: the tasks and sub-tasks a project needs, by category, with working days to complete (fixed, or per
+  quantity from the quote), what each waits for, and the BOQ words that bring them into a project.
 
 Specification: [`docs/PLAN.md`](docs/PLAN.md). Conventions: [`CLAUDE.md`](CLAUDE.md).
 
@@ -21,6 +23,9 @@ npm run seed:demo                     # optional: demo projects/tasks (dev serve
 ```
 
 The BOQ and CRM bindings are not running locally, so the project picker shows them as unavailable (Blank works).
+To try the quote import locally, run any Worker named `koochie-boq` that answers the integration contract
+(`GET /api/integration/planner/quotes` and `…/quotes/:id/lines`) with `wrangler dev` alongside `npm run dev`; the
+dev registry connects the `BOQ` binding to it.
 
 ## Commands
 
@@ -48,11 +53,16 @@ Every push to `main` deploys through Cloudflare **Workers Builds** (Worker → S
   `INTEGRATION_SECRET` (the same value as on `koochie-boq` and `yourcrm`; it authenticates the project picker's calls).
 - **Migrations are not applied by the build.** When a change adds `migrations/NNNN_*.sql`, run
   `npm run db:migrate:remote` before (or right after) pushing it. `0001`–`0003` are already applied to production
-  (2026-10-15, recorded in `d1_migrations`, so wrangler skips them).
+  (2026-10-15, recorded in `d1_migrations`, so wrangler skips them). `0004_task_lists` and `0005_task_list_seed`
+  (Task Lists) must be applied **before** the code that uses them goes live.
 - **First run**: the app shows **Create the first admin**; that account becomes `admin`. Later users are created in
   Users with a temporary password and must change it on first sign-in.
 - **Project picker**: BOQ quotes come from `GET /api/integration/planner/quotes` on `koochie-boq` (added for this app);
   CRM leads from `GET /api/integration/leads` on `yourcrm`. Both over service bindings with `X-Integration-Secret`.
+- **Quote import**: line items come from `GET /api/integration/planner/quotes/:id/lines` on `koochie-boq`
+  ([`docs/boq-maker-quote-lines.patch`](docs/boq-maker-quote-lines.patch), on top of BOQ Maker's
+  `claude/focused-clarke-f8i3u5` branch). Until BOQ Maker serves it, the import says the lines are unavailable and
+  projects are created without tasks.
 - **Rollback**: Worker → Deployments → previous version → *Rollback*. D1 has Time Travel
   (`npx wrangler d1 time-travel restore koochie-calendar --timestamp <ISO time>`).
 
@@ -61,5 +71,5 @@ Every push to `main` deploys through Cloudflare **Workers Builds** (Worker → S
 | Role | Can |
 |---|---|
 | admin | Everything, including Users and deleting projects |
-| editor | Create/edit projects, tasks, sub-tasks and the catalogue; tick items done |
+| editor | Create/edit projects, tasks, sub-tasks and the Task Lists; tick items done |
 | viewer | See everything; change nothing |

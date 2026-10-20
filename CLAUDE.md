@@ -17,7 +17,8 @@ deploys via Workers Builds; migrations are applied by hand — see README "Deplo
 
 ## Hard rules
 1. **All date and schedule maths lives in `shared/schedule`** — pure functions, unit-tested. UI and Worker only call
-   it (Today selection, date-pair rules, rollups, Gantt geometry, date parsing).
+   it (Today selection, date-pair rules, rollups, Gantt geometry, date parsing, working days, duration rules,
+   dependency propagation, quote import plans).
 2. **Dates are IST calendar days as `'YYYY-MM-DD'` strings** (no `Date` objects in the DB or engine). Timestamps
    (`created_at`, `done_at`) are UTC ISO strings. IST = UTC+05:30, no DST: use offset arithmetic, not `Intl`.
 3. **A task's dates are both set or both empty**, `end ≥ start` (SQL CHECK + `normalisePair`). Two levels only:
@@ -36,7 +37,7 @@ deploys via Workers Builds; migrations are applied by hand — see README "Deplo
 12. Brand assets: `logo_black` on light backgrounds, `logo_white` on dark ones (source of truth: `inputs/brand/`).
 
 ## Roles
-`admin` (everything incl. users and deleting projects), `editor` (plans, projects, catalogue, ticks done),
+`admin` (everything incl. users and deleting projects), `editor` (plans, projects, Task Lists, ticks done),
 `viewer` (read-only). Only active admins/editors can own tasks.
 
 ## Style

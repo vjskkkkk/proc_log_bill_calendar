@@ -74,6 +74,13 @@ describe('buildImportPlan', () => {
     expect(t['Site shed']).toMatchObject({ catalogItemId: null, category: 'logistics', plannedDays: 2, startDate: '2026-10-19', endDate: '2026-10-20' });
   });
 
+  it('puts always-added site work that waits for nothing (handover) after the site work that ends last', () => {
+    const withHandover = [...items, item({ id: 'handover', category: 'installation', name: 'Site handover', autoAdd: true, rule: fixed(1) })];
+    const p = buildImportPlan({ lines, choices: defaultChoices(lines, withHandover), items: withHandover, extraTemplateIds: ['handover'], startDate: '2026-10-19', quoteLabel: 'Q' });
+    const t = Object.fromEntries(p.map((x) => [x.title, x]));
+    expect(t['Site handover']).toMatchObject({ dependsOnKey: 't:lay', startDate: '2026-11-07', endDate: '2026-11-07' }); // Infill ends Fri 6 Nov
+  });
+
   it('flags a per-qty rule that found no quantity in its unit', () => {
     const odd = [line({ id: 'x', name: 'Solaris 200F', code: 'SOLARIS-200F', qty: 500, unit: 'Sqft' })];
     const p = buildImportPlan({ lines: odd, choices: defaultChoices(odd, items), items, extraTemplateIds: [], startDate: '2026-10-19', quoteLabel: 'Q' });

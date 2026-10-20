@@ -70,20 +70,21 @@ for (let i = 0; i < count; i++) {
   const project = await call('POST', '/api/projects', { name: i < SITES.length ? name : `${name} (phase ${Math.floor(i / SITES.length) + 1})`, client, location });
   const pid = project.project.id;
   const own = (k: number) => owners[(i + k) % owners.length];
-  // Template tasks: their standard steps are added undated, then some steps get their own dates.
+  // Task List tasks: their sub-tasks are added undated (chained by their dependencies), then some get dates.
   const turf = uuid();
-  const turfRes = await call('POST', '/api/tasks', { id: turf, projectId: pid, title: 'Turf / court flooring', catalogItemId: 'cat-material-01', startDate: d(shift - 6), endDate: d(shift + 12), assigneeId: own(0) });
+  const turfRes = await call('POST', '/api/tasks', { id: turf, projectId: pid, title: 'Artificial turf', catalogItemId: 'tl-m-turf', startDate: d(shift - 6), endDate: d(shift + 12), assigneeId: own(0) });
   const steps = turfRes.tasks.filter((t: any) => t.parentId === turf);
   const stepDates: [number, number][] = [[-6, -4], [-4, -1], [0, 1], [1, 2], [3, 10], [11, 12]];
   for (const [k, s] of steps.entries()) {
     const [a, b] = stepDates[k] ?? [0, 0];
     await call('PATCH', `/api/tasks/${s.id}`, { startDate: d(shift + a), endDate: d(shift + b), ...(k === 1 ? { assigneeId: own(1) } : {}), ...(shift + b < 0 && k !== 1 ? { done: true } : {}) });
   }
-  await call('POST', '/api/tasks', { id: uuid(), projectId: pid, title: 'Floodlights & poles', catalogItemId: 'cat-equipment-02', startDate: d(shift + 2), endDate: d(shift + 16), assigneeId: own(1) });
+  await call('POST', '/api/tasks', { id: uuid(), projectId: pid, title: 'Floodlights & poles', catalogItemId: 'tl-e-lights', startDate: d(shift + 2), endDate: d(shift + 16), assigneeId: own(1) });
   const dispatch = uuid();
-  await call('POST', '/api/tasks', { id: dispatch, projectId: pid, title: 'Dispatch to site', catalogItemId: 'cat-logistics-01', startDate: d(shift + 13), endDate: d(shift + 15), assigneeId: own(2) });
+  await call('POST', '/api/tasks', { id: dispatch, projectId: pid, title: 'Dispatch from warehouse to site', catalogItemId: 'tl-l-dispatch', addCatalogSteps: false, startDate: d(shift + 13), endDate: d(shift + 15), assigneeId: own(2) });
   await call('POST', '/api/tasks', { id: uuid(), projectId: pid, title: 'Advance invoice', category: 'billing', startDate: d(shift - 8), endDate: d(shift - 7), assigneeId: own(2) });
-  await call('POST', '/api/tasks', { id: uuid(), projectId: pid, title: 'Dispatch invoice', category: 'billing', startDate: d(shift + 15), endDate: d(shift + 16), assigneeId: own(0) });
+  // Waits for the dispatch: moves whenever the dispatch moves.
+  await call('POST', '/api/tasks', { id: uuid(), projectId: pid, title: 'Dispatch invoice', category: 'billing', dependsOnId: dispatch, plannedDays: 2, assigneeId: own(0) });
   await call('POST', '/api/tasks', { id: uuid(), projectId: pid, title: 'Arrange crane for pole erection', category: 'equipment' });
 }
 console.log(`seed:demo — ${count} projects with tasks at ${BASE}`);

@@ -1,0 +1,139 @@
+From 6223de4fa2af257b7339d519f6753430ba642e2a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 20 Oct 2026 13:25:50 +0530
+Subject: [PATCH] Calendar link: an issued quote's line items for drafting its
+ Gantt, no figures
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GET /api/integration/planner/quotes/:id/lines (behind the INTEGRATION_SECRET guard) returns the quote and its lines:
+area, code, name, unit, quantity, optional, catalogue category/sub-category. No rates, margins or amounts. Drafts and
+cancelled quotes answer 404. Read by koochie-calendar to draft a project's tasks from its quote (PLAN §11).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ worker/routes/crm.ts          |  9 ++++++-
+ worker/routes/planner.test.ts | 16 +++++++++++
+ worker/services/planner.ts    | 50 ++++++++++++++++++++++++++++++++++-
+ 3 files changed, 73 insertions(+), 2 deletions(-)
+
+diff --git a/worker/routes/crm.ts b/worker/routes/crm.ts
+index 1b7aab3..a036c45 100644
+--- a/worker/routes/crm.ts
++++ b/worker/routes/crm.ts
+@@ -6,7 +6,7 @@ import { crmStatus, fetchLead, fetchLeads, INTEGRATION_HEADER, latestQuoteForLea
+ import { createQuote } from '../services/quotes/create';
+ import { getQuoteRow, loadQuote, logEvent } from '../services/quotes/load';
+ import { redactForRole } from '../services/redact';
+-import { plannerQuotes } from '../services/planner';
++import { plannerQuoteLines, plannerQuotes } from '../services/planner';
+ import { quoteErrorHandler } from './quote-areas';
+ 
+ const LEAD_ID = /^[\w-]{1,100}$/;
+@@ -76,3 +76,10 @@ integrationRoutes.get('/planner/quotes', async (c) => {
+   const limit = Number(c.req.query('limit') ?? '') || undefined;
+   return c.json({ quotes: await plannerQuotes(db(c.env.DB), { q: c.req.query('q') ?? '', limit }) });
+ });
++
++/** One issued quote's line items (names, units, quantities — no figures) for drafting its project's Gantt (PLAN §11). */
++integrationRoutes.get('/planner/quotes/:id/lines', async (c) => {
++  c.header('Cache-Control', 'no-store');
++  const found = await plannerQuoteLines(db(c.env.DB), c.req.param('id'));
++  return found ? c.json(found) : c.json({ error: 'Not found' }, 404);
++});
+diff --git a/worker/routes/planner.test.ts b/worker/routes/planner.test.ts
+index b27cd1d..b1534b8 100644
+--- a/worker/routes/planner.test.ts
++++ b/worker/routes/planner.test.ts
+@@ -70,6 +70,22 @@ describe('Calendar link: issued quotes for the planner', () => {
+     expect(await quotes('?q=nothing-matches')).toEqual([]);
+   });
+ 
++  it('serves an issued quote’s lines — names, units, quantities — and nothing for drafts or unknown ids', async () => {
++    const lines = (id: string, secret = 'crm-test-secret') => req(`/api/integration/planner/quotes/${id}/lines`, { headers: { 'X-Integration-Secret': secret } });
++    const id = await issuedQuote('Lines Arena', { clientCompany: 'Lines Co' });
++    expect((await lines(id, 'wrong')).status).toBe(403);
++    const res = await lines(id);
++    expect(res.status).toBe(200);
++    const body = (await res.json()) as any;
++    expect(body.quote).toMatchObject({ id, rootQuoteId: id, projectName: 'Lines Arena', clientCompany: 'Lines Co' });
++    expect(body.lines).toEqual([{ id: expect.any(String), area: 'COURT', sport: '', code: '', name: 'Item', unit: 'Sqft', qty: 10, optional: false, category: '', subCategory: '' }]);
++    expect(containsCostFields(body)).toEqual([]);
++    expect(JSON.stringify(Object.keys(body.lines[0]))).not.toMatch(/rate|margin|overhead|amount|total|price/i);
++    const draft = (await (await req('/api/quotes', json('POST', { projectName: 'Draft only' }, admin))).json()) as any;
++    expect((await lines(draft.id)).status).toBe(404);
++    expect((await lines('no-such-quote')).status).toBe(404);
++  });
++
+   it('carries no figures at all (CLAUDE.md rule 3)', async () => {
+     const body = (await (await list()).json()) as any;
+     expect(containsCostFields(body)).toEqual([]);
+diff --git a/worker/services/planner.ts b/worker/services/planner.ts
+index ec47156..69d6536 100644
+--- a/worker/services/planner.ts
++++ b/worker/services/planner.ts
+@@ -3,7 +3,7 @@
+  * quotes, reading this list over its `BOQ` service binding with the shared INTEGRATION_SECRET. Like the CRM status
+  * feed it carries no money at all — not even selling figures (CLAUDE.md rule 3) — only what names a project.
+  */
+-import { and, desc, isNotNull, ne } from 'drizzle-orm';
++import { and, asc, desc, eq, isNotNull, ne } from 'drizzle-orm';
+ import type { QuoteStatus } from '@shared/schemas/quote';
+ import { schema, type Db } from '../db/client';
+ import { displayQuoteNo } from './numbering';
+@@ -54,3 +54,51 @@ export async function plannerQuotes(d: Db, opts: { q?: string; limit?: number }
+     .sort((a, b) => (b.pdfIssuedAt ?? '').localeCompare(a.pdfIssuedAt ?? ''))
+     .slice(0, limit);
+ }
++
++export interface PlannerQuoteLine {
++  id: string;
++  area: string;
++  sport: string;
++  code: string;
++  name: string;
++  unit: string;
++  qty: number;
++  optional: boolean;
++  /** BOQ catalogue category and sub-category of the line's item ('' for a free-typed line). */
++  category: string;
++  subCategory: string;
++}
++
++/**
++ * The line items of one issued quote, for Koochie Calendar to draft a project's Gantt from (PLAN §11): what is being
++ * supplied and how much — names, units and quantities only, never a rate or an amount. Drafts and cancelled quotes
++ * are not served (null → 404).
++ */
++export async function plannerQuoteLines(d: Db, quoteId: string): Promise<{ quote: PlannerQuote; lines: PlannerQuoteLine[] } | null> {
++  const [q] = await d
++    .select({
++      id: schema.quotes.id, rootQuoteId: schema.quotes.rootQuoteId, quoteNo: schema.quotes.quoteNo, revision: schema.quotes.revision,
++      status: schema.quotes.status, quoteType: schema.quotes.quoteType, clientCompany: schema.quotes.clientCompany,
++      clientName: schema.quotes.clientName, projectName: schema.quotes.projectName, location: schema.quotes.location,
++      crmLeadId: schema.quotes.crmLeadId, pdfIssuedAt: schema.quotes.pdfIssuedAt,
++    })
++    .from(schema.quotes)
++    .where(and(eq(schema.quotes.id, quoteId), isNotNull(schema.quotes.pdfIssuedAt), ne(schema.quotes.status, 'cancelled')));
++  if (!q) return null;
++  const rows = await d
++    .select({
++      id: schema.quoteLines.id, area: schema.quoteAreas.name, sport: schema.quoteAreas.sport, code: schema.quoteLines.code,
++      name: schema.quoteLines.name, unit: schema.quoteLines.unit, qty: schema.quoteLines.qty, optional: schema.quoteLines.isOptional,
++      category: schema.catalogCategories.name, subCategory: schema.catalogItems.subCategory,
++    })
++    .from(schema.quoteLines)
++    .innerJoin(schema.quoteAreas, eq(schema.quoteAreas.id, schema.quoteLines.areaId))
++    .leftJoin(schema.catalogItems, eq(schema.catalogItems.id, schema.quoteLines.catalogItemId))
++    .leftJoin(schema.catalogCategories, eq(schema.catalogCategories.id, schema.catalogItems.categoryId))
++    .where(eq(schema.quoteAreas.quoteId, quoteId))
++    .orderBy(asc(schema.quoteAreas.sort), asc(schema.quoteLines.sort));
++  return {
++    quote: { ...q, displayNo: displayQuoteNo(q.quoteNo, q.revision) },
++    lines: rows.map((r) => ({ ...r, optional: !!r.optional, category: r.category ?? '', subCategory: r.subCategory ?? '' })),
++  };
++}
+-- 
+2.56.0.windows.2
+
