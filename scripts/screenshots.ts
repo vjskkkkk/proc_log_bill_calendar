@@ -34,7 +34,7 @@ const shots: [string, (p: Page) => Promise<void>][] = [
   ['planner-month', async (p) => { await p.goto(`${BASE}/planner`); await p.getByRole('button', { name: 'Month' }).click(); await p.waitForTimeout(500); }],
   ['projects', async (p) => { await p.goto(`${BASE}/projects`); await p.waitForTimeout(400); }],
   ['new-project', async (p) => { await p.goto(`${BASE}/projects`); await p.getByRole('button', { name: '+ New project' }).click(); await p.waitForTimeout(600); }],
-  ['catalogue', async (p) => { await p.goto(`${BASE}/catalogue`); await p.locator('button[aria-label="Show steps"]').first().click(); await p.waitForTimeout(300); }],
+  ['task-lists', async (p) => { await p.goto(`${BASE}/task-lists`); await p.locator('button[aria-label="Show sub-tasks"]').first().click(); await p.waitForTimeout(300); }],
   ['users', async (p) => { await p.goto(`${BASE}/admin/users`); await p.waitForTimeout(300); }],
 ];
 

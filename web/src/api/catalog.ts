@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Category } from '@shared/categories';
-import type { CatalogItemDto, CreateCatalogItemInput } from '@shared/schemas/plan';
+import type { CatalogItemDto, CreateCatalogItemInput, PatchCatalogItemInput } from '@shared/schemas/plan';
 import { api } from './client';
 import { toast } from '../lib/toast';
 
@@ -25,7 +24,7 @@ export function useCreateCatalogItem() {
   return useCatalogMutation((input: CreateCatalogItemInput) => api<{ item: CatalogItemDto; items: CatalogItemDto[] }>('/api/catalog', { method: 'POST', json: input }));
 }
 export function usePatchCatalogItem() {
-  return useCatalogMutation(({ id, ...patch }: { id: string; name?: string; category?: Category }) => api<{ items: CatalogItemDto[] }>(`/api/catalog/${id}`, { method: 'PATCH', json: patch }));
+  return useCatalogMutation(({ id, ...patch }: { id: string } & PatchCatalogItemInput) => api<{ items: CatalogItemDto[] }>(`/api/catalog/${id}`, { method: 'PATCH', json: patch }));
 }
 export function useDeleteCatalogItem() {
   return useCatalogMutation((id: string) => api<{ items: CatalogItemDto[] }>(`/api/catalog/${id}`, { method: 'DELETE' }));

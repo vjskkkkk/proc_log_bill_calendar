@@ -1,11 +1,13 @@
 import { memo } from 'react';
 import { CATEGORY_COLOR, isCategory } from '@shared/categories';
 import type { CatalogItemDto, TaskDto } from '@shared/schemas/plan';
-import { diffDays, formatShort } from '@shared/schedule/dates';
+import { formatShort } from '@shared/schedule/dates';
+import { dependencyCandidates } from '@shared/schedule/deps';
 import type { Span } from '@shared/schedule/spans';
 import { barGeometry } from '@shared/schedule/timeline';
+import { workingDays } from '@shared/schedule/workdays';
 import { CategoryDot } from '../ui';
-import { CategoryCell, DateCell, DoneCell, OwnerCell } from './cells';
+import { CategoryCell, DateCell, DaysCell, DependencyCell, DoneCell, OwnerCell, type DepOption } from './cells';
 import { useGantt, type DragMode, type Row } from './GanttContext';
 import { cellId, ROW_H, type ColKey } from './layout';
 import { TitleCombobox } from './TitleCombobox';
@@ -15,7 +17,30 @@ export interface RowPreview {
   label: string;
 }
 
-const days = (s: Span | null) => (s ? diffDays(s.start, s.end) + 1 : null);
+/** Working days (Sundays off). */
+const days = (s: Span | null) => (s ? workingDays(s.start, s.end) : null);
+
+/** "Task › Sub-task" for a dependency label. */
+export function depLabel(tasks: TaskDto[], id: string | null): string | null {
+  if (!id) return null;
+  const t = tasks.find((x) => x.id === id);
+  if (!t) return null;
+  const parent = t.parentId ? tasks.find((x) => x.id === t.parentId) : null;
+  return parent ? `${parent.title} › ${t.title}` : t.title;
+}
+
+/** What a row may wait for: the project's other tasks and sub-tasks that don't make a loop, grouped by task. */
+export function depOptions(tasks: TaskDto[], task: TaskDto): DepOption[] {
+  const mine = tasks.filter((t) => t.projectId === task.projectId);
+  const ok = new Set(dependencyCandidates(mine, task.id));
+  const tops = mine.filter((t) => !t.parentId).sort((a, b) => a.sortOrder - b.sortOrder);
+  const out: DepOption[] = [];
+  for (const top of tops) {
+    if (ok.has(top.id)) out.push({ id: top.id, label: `${top.title} (whole task)`, group: top.title });
+    for (const s of mine.filter((x) => x.parentId === top.id).sort((a, b) => a.sortOrder - b.sortOrder)) if (ok.has(s.id)) out.push({ id: s.id, label: s.title, group: top.title });
+  }
+  return out;
+}
 
 function Label({ text, inside, done, color }: { text: string; inside: boolean; done?: boolean; color?: string }) {
   return (
@@ -43,13 +68,14 @@ function LeafBar({ row, task, span, overdue, ghost }: { row: Row; task: TaskDto;
       } ${g.editable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       style={{ left, width, backgroundColor: ghost ? 'transparent' : c.bg, borderColor: ghost ? c.bg : undefined }}
       onPointerDown={down('move')}
-      title={`${task.title}\n${formatShort(span.start)} → ${formatShort(span.end)} · ${days(span)} d${ghost ? " (task's dates)" : ''}${overdue ? ' · OVERDUE' : ''}`}
+      title={`${task.title}\n${formatShort(span.start)} → ${formatShort(span.end)} · ${days(span)} working d${ghost ? " (task's dates)" : ''}${task.dependsOnId ? `\nStarts after: ${depLabel(g.tasks, task.dependsOnId)}` : ''}${overdue ? ' · OVERDUE' : ''}`}
       data-bar={task.id}
     >
       <Label text={task.title} inside={inside} done={task.done} color={c.text} />
+      {task.dependsOnId && !ghost && <span className="pointer-events-none absolute -left-2 top-1/2 h-2 w-2 -translate-y-1/2 rotate-45 border-r-2 border-t-2" style={{ borderColor: c.bg }} aria-hidden="true" />}
       {g.editable && !ghost && (
         <>
-          <span className="absolute -left-1 top-0 h-full w-2.5 cursor-ew-resize" onPointerDown={(e) => { e.stopPropagation(); down('start')(e); }} />
+          {!task.dependsOnId && <span className="absolute -left-1 top-0 h-full w-2.5 cursor-ew-resize" onPointerDown={(e) => { e.stopPropagation(); down('start')(e); }} />}
           <span className="absolute -right-1 top-0 h-full w-2.5 cursor-ew-resize" onPointerDown={(e) => { e.stopPropagation(); down('end')(e); }} />
         </>
       )}
@@ -196,6 +222,7 @@ function TaskCells({ row }: { row: Extract<Row, { kind: 'task' | 'subtask' }> })
           className={`cell-input ${row.kind === 'task' ? 'font-medium' : ''} ${t.done ? 'text-muted line-through' : ''}`}
           onCommit={(title) => a.patch(t.id, { title, catalogItemId: null })}
           onPick={(item: CatalogItemDto) => a.patch(t.id, { title: item.name, catalogItemId: item.id })}
+          onSaveNew={(name) => a.askNew({ name, projectId: t.projectId, category: t.category, parent: isSub ? row.parent : null, taskId: t.id })}
           onEnter={(mod) => {
             if (mod && !isSub) a.focusCell(`a:${t.id}`, 'title');
             else a.focusCell(`a:${isSub ? row.parent.id : t.projectId}`, 'title');
@@ -240,8 +267,8 @@ function TaskCells({ row }: { row: Extract<Row, { kind: 'task' | 'subtask' }> })
       <DateCell
         label="Start"
         value={inherited ? inherited.start : span?.start ?? null}
-        muted={!!inherited}
-        editable={g.editable}
+        muted={!!inherited || !!t.dependsOnId}
+        editable={g.editable && !t.dependsOnId}
         onCommit={(startDate) => a.patch(t.id, { startDate })}
         cellId={cellId(row.key, 'start')}
         onArrow={arrow('start')}
@@ -261,7 +288,31 @@ function TaskCells({ row }: { row: Extract<Row, { kind: 'task' | 'subtask' }> })
         onArrow={arrow('end')}
       />
     ),
-    days: <span className={`block px-2 text-right text-xs tabular-nums ${row.kind === 'task' && row.hasChildren ? 'text-muted' : ''}`}>{shownDays ?? ''}</span>,
+    days:
+      row.kind === 'task' && row.hasChildren ? (
+        <span className="block px-2 text-right text-xs tabular-nums text-muted" title="Working days from the first to the last of its sub-tasks">{shownDays ?? ''}</span>
+      ) : (
+        <DaysCell
+          value={span ? days(span) : t.plannedDays}
+          muted={!span}
+          editable={g.editable}
+          title={span ? 'Working days (Sundays off). Type a new length to move the end.' : t.plannedDays ? 'Planned working days: they set the end once it has a start' : 'Working days'}
+          onCommit={(plannedDays) => a.patch(t.id, { plannedDays })}
+          cellId={cellId(row.key, 'days')}
+          onArrow={arrow('days')}
+        />
+      ),
+    dep: (
+      <DependencyCell
+        value={t.dependsOnId}
+        valueLabel={depLabel(g.tasks, t.dependsOnId)}
+        options={() => depOptions(g.tasks, t)}
+        editable={g.editable}
+        onChange={(dependsOnId) => a.patch(t.id, { dependsOnId })}
+        cellId={cellId(row.key, 'dep')}
+        onArrow={arrow('dep')}
+      />
+    ),
     done: (
       <DoneCell
         done={t.done}
@@ -314,14 +365,25 @@ function ProjectCells({ row }: { row: Extract<Row, { kind: 'project' }> }) {
           {row.overdueCount > 0 && <span className="ml-1.5 font-semibold text-brand-red">{row.overdueCount} overdue</span>}
         </span>
         {g.editable && (
-          <button
-            type="button"
-            tabIndex={-1}
-            className="shrink-0 rounded px-1.5 text-xs font-medium text-brand-purple opacity-0 hover:bg-brand-purple/10 group-hover:opacity-100"
-            onClick={() => g.actions.focusCell(`a:${p.id}`, 'title')}
-          >
-            + Task
-          </button>
+          <>
+            <button
+              type="button"
+              tabIndex={-1}
+              className="shrink-0 rounded px-1.5 text-xs font-medium text-brand-purple opacity-0 hover:bg-brand-purple/10 group-hover:opacity-100"
+              onClick={() => g.actions.importQuote(p)}
+              title={p.boqQuoteNo ? `Add tasks from quote ${p.boqQuoteNo}` : 'Add tasks from a BOQ quote'}
+            >
+              ⇣ From quote
+            </button>
+            <button
+              type="button"
+              tabIndex={-1}
+              className="shrink-0 rounded px-1.5 text-xs font-medium text-brand-purple opacity-0 hover:bg-brand-purple/10 group-hover:opacity-100"
+              onClick={() => g.actions.focusCell(`a:${p.id}`, 'title')}
+            >
+              + Task
+            </button>
+          </>
         )}
       </div>
     </>
@@ -334,6 +396,15 @@ function AddCells({ row }: { row: Extract<Row, { kind: 'add' }> }) {
   const a = g.actions;
   const title = g.cols.find((c) => c.key === 'title')!;
   const before = g.cols[0]!.w;
+  const free = (text: string) => {
+    // Typed, not picked: an exact Task List name is used as if picked; anything new asks how its days work.
+    const name = text.trim().toLowerCase();
+    const known = isSub
+      ? g.catalog.find((c) => c.parentId && c.parentId === row.parent!.catalogItemId && c.name.toLowerCase() === name)
+      : g.catalog.find((c) => !c.parentId && c.name.toLowerCase() === name);
+    if (known) return create(known.name, known.id, known.category);
+    a.askNew({ name: text.trim(), projectId: row.project.id, category: isSub ? row.parent!.category : a.lastCategory(), parent: row.parent });
+  };
   const create = (title: string, catalogItemId: string | null, category?: string) => {
     a.create({
       projectId: row.project.id,
@@ -356,11 +427,12 @@ function AddCells({ row }: { row: Extract<Row, { kind: 'add' }> }) {
           catalog={g.catalog}
           editable
           clearOnCommit
-          placeholder={isSub ? '+ Add sub-task' : '+ Add task (type, or pick from catalogue)'}
+          placeholder={isSub ? '+ Add sub-task' : '+ Add task (type, or pick from the Task Lists)'}
           className="cell-input text-sm placeholder:text-brand-purple/80"
           cellId={cellId(row.key, 'title')}
-          onCommit={(t) => create(t, null)}
+          onCommit={free}
           onPick={(item) => create(item.name, item.id, item.category)}
+          onSaveNew={free}
           onArrow={(d) => a.moveFocus(row.key, 'title', d)}
         />
       </div>

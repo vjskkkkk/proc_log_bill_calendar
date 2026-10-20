@@ -9,12 +9,14 @@ import { dateAtX, dayCount, sundayOffset, timelineRange, xOf, ZOOM_PX, type Zoom
 import { canEdit, type UserPublic } from '@shared/types';
 import { useCatalog } from '../api/catalog';
 import { useCreateTask, useDeleteTask, usePatchTask, usePlan, useReorderProjects, useReorderTasks, useShiftTask } from '../api/plan';
-import { GanttContext, type DragMode, type GanttActions, type GanttCtx, type Row } from '../components/gantt/GanttContext';
+import { GanttContext, type DragMode, type GanttActions, type GanttCtx, type NewTaskRequest, type Row } from '../components/gantt/GanttContext';
 import { GanttHeader } from '../components/gantt/GanttHeader';
-import { GanttRowView, type RowPreview } from '../components/gantt/GanttRow';
+import { depLabel, GanttRowView, type RowPreview } from '../components/gantt/GanttRow';
 import { columns, HEADER_H, leftWidth, OVERSCAN, ROW_H, type ColKey } from '../components/gantt/layout';
+import { NewTaskDialog } from '../components/gantt/NewTaskDialog';
 import { TaskDrawer } from '../components/gantt/TaskDrawer';
 import { NewProjectDialog } from '../components/projects/NewProjectDialog';
+import { ImportQuoteDialog } from '../components/projects/QuoteImport';
 import { Seg } from '../components/ui';
 import { usePeople } from '../lib/people';
 import { readPref, writePref } from '../lib/prefs';
@@ -25,6 +27,8 @@ interface DragState {
   row: Row;
   taskId: string;
   mode: DragMode;
+  /** A dependent row's start is set by what it waits for: only its end can be dragged. */
+  locked: string | null;
   startClientX: number;
   startScroll: number;
   span: Span | null;
@@ -70,6 +74,8 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
   const [forcedAdd, setForcedAdd] = useState<Set<string>>(new Set());
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [newTask, setNewTask] = useState<NewTaskRequest | null>(null);
+  const [importing, setImporting] = useState<ProjectDto | null>(null);
   const [flashKey, setFlashKey] = useState<string | null>(null);
   const lastCategory = useRef<string>(readPref('planner.lastCategory', 'material'));
 
@@ -240,6 +246,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
     const dx = s.lastClientX - s.startClientX + (el.scrollLeft - s.startScroll);
     if (!s.moved && Math.abs(dx) < 3) return;
     s.moved = true;
+    if (s.locked) return;
     let next: Span | null = null;
     if (s.mode === 'draw') {
       const cur = dateAtX(laneX(s.lastClientX), range.start, px);
@@ -267,6 +274,10 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       if (!s) return;
       if (!s.moved) {
         if (commit && s.mode !== 'draw') setDrawerId(s.taskId);
+        return;
+      }
+      if (s.locked) {
+        if (commit) toast(`"${s.row.kind === 'task' || s.row.kind === 'subtask' ? s.row.task.title : ''}" starts after "${s.locked}" ends. Drag its right end to change its length, or make it Independent (Waits for) to move it freely.`);
         return;
       }
       if (!commit || !editable || !s.preview) return;
@@ -309,10 +320,12 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       }
       e.preventDefault();
       const span = row.kind === 'subtask' ? row.own ?? row.inherited : row.own;
+      const waitsFor = row.task.dependsOnId && mode !== 'end' ? depLabel(plan.data?.tasks ?? [], row.task.dependsOnId) ?? 'another task' : null;
       drag.current = {
         row,
         taskId: row.task.id,
         mode,
+        locked: waitsFor,
         startClientX: e.clientX,
         startScroll: scroller.current!.scrollLeft,
         span,
@@ -339,7 +352,7 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       raf.current = requestAnimationFrame(tick);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [editable, range.start, px, leftW, recompute],
+    [editable, range.start, px, leftW, recompute, plan.data],
   );
 
   // ---- row reordering (grip) ----
@@ -451,13 +464,15 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
       startDrag,
       startRowDrag,
       lastCategory: () => lastCategory.current,
+      askNew: setNewTask,
+      importQuote: setImporting,
     }),
     [patchTask, createTask, deleteTask, moveFocus, focusCell, filters, reorderTo, startDrag, startRowDrag],
   );
 
   const ctx: GanttCtx = useMemo(
-    () => ({ px, origin: range.start, today, cols, leftW, laneW, editable, people, catalog: catalog.data ?? [], actions }),
-    [px, range.start, today, cols, leftW, laneW, editable, people, catalog.data, actions],
+    () => ({ px, origin: range.start, today, cols, leftW, laneW, editable, people, catalog: catalog.data ?? [], tasks: plan.data?.tasks ?? [], actions }),
+    [px, range.start, today, cols, leftW, laneW, editable, people, catalog.data, plan.data, actions],
   );
 
   // ---- ?focus=<taskId> | project:<id> (from Today / Projects) ----
@@ -696,6 +711,36 @@ export default function PlannerPage({ user }: { user: UserPublic }) {
         />
       )}
       {creatingProject && <NewProjectDialog onClose={() => setCreatingProject(false)} />}
+      {importing && <ImportQuoteDialog project={importing} onClose={() => setImporting(null)} />}
+      {newTask && plan.data && (
+        <NewTaskDialog
+          req={newTask}
+          tasks={plan.data.tasks}
+          catalog={catalog.data ?? []}
+          onClose={() => setNewTask(null)}
+          onDone={(r) => {
+            const req = newTask;
+            setNewTask(null);
+            if (req.taskId) {
+              actions.patch(req.taskId, { title: r.title, catalogItemId: r.catalogItemId, plannedDays: r.plannedDays, ...(req.parent ? {} : { category: r.category }) });
+              return;
+            }
+            const id = actions.create({
+              projectId: req.projectId,
+              parentId: req.parent?.id ?? null,
+              title: r.title,
+              catalogItemId: r.catalogItemId,
+              plannedDays: r.plannedDays,
+              dependsOnId: r.dependsOnId,
+              addCatalogSteps: false,
+              ...(req.parent ? {} : { category: r.category }),
+              ...(r.quantities ? { quantities: r.quantities } : {}),
+            });
+            setTimeout(() => focusCell(`a:${req.parent?.id ?? req.projectId}`, 'title'), 80);
+            void id;
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -26,7 +26,7 @@ export default function AdminUsersPage() {
         <h1 className="text-2xl font-semibold">Users</h1>
         <p className="text-sm text-muted">
           New users sign in with the temporary password and must choose their own. <b>admin</b>: everything ·{' '}
-          <b>editor</b>: projects, plans, catalogue · <b>viewer</b>: read-only.
+          <b>editor</b>: projects, plans, Task Lists · <b>viewer</b>: read-only.
         </p>
       </div>
       <form onSubmit={submit} className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">

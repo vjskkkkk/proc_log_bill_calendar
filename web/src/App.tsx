@@ -11,7 +11,7 @@ import ChangePasswordPage from './pages/ChangePassword';
 import AdminUsersPage from './pages/AdminUsers';
 import TodayPage, { useTodayIST } from './pages/Today';
 import ProjectsPage from './pages/Projects';
-import CataloguePage from './pages/Catalogue';
+import TaskListsPage from './pages/TaskLists';
 
 const PlannerPage = lazy(() => import('./pages/Planner'));
 
@@ -39,7 +39,8 @@ function SignedIn({ user }: { user: UserPublic }) {
           <Route path="/" element={<TodayPage user={user} />} />
           <Route path="/planner" element={<PlannerPage user={user} />} />
           <Route path="/projects" element={<ProjectsPage user={user} />} />
-          <Route path="/catalogue" element={<CataloguePage user={user} />} />
+          <Route path="/task-lists" element={<TaskListsPage user={user} />} />
+          <Route path="/catalogue" element={<Navigate to="/task-lists" replace />} />
           <Route path="/change-password" element={<ChangePasswordPage forced={user.mustChangePassword} />} />
           <Route path="/admin/users" element={gate(['admin'], <AdminUsersPage />)} />
           <Route path="*" element={<Navigate to="/" replace />} />

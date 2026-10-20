@@ -223,3 +223,101 @@ export function DoneCell({ done, editable, onChange, cellId, onArrow, partial }:
 }
 
 export type { ColKey };
+
+/** Working days: a number that commits on Enter/blur (sets the row's planned days; a dated row's end moves). */
+export function DaysCell({ value, muted, editable, onCommit, cellId, onArrow, title }: NavProps & { value: number | null; muted?: boolean; editable: boolean; onCommit: (n: number) => void; title?: string }) {
+  const shown = value === null ? '' : String(value);
+  const [text, setText] = useState(shown);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setText(shown);
+  }, [shown]);
+  if (!editable) return <span className={`block px-2 text-right text-xs tabular-nums ${muted ? 'text-muted' : ''}`} title={title}>{shown}</span>;
+  const commit = () => {
+    if (!editing.current) return;
+    editing.current = false;
+    const n = Math.round(Number(text));
+    if (!text.trim() || !Number.isFinite(n) || n < 1 || n > 3650) return setText(shown);
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <input
+      data-cell={cellId}
+      className={`cell-input px-1.5 text-right text-xs tabular-nums ${muted ? 'text-muted' : ''}`}
+      inputMode="numeric"
+      value={text}
+      title={title}
+      aria-label="Working days"
+      onFocus={(e) => {
+        editing.current = true;
+        e.currentTarget.select();
+      }}
+      onChange={(e) => {
+        editing.current = true;
+        setText(e.target.value.replace(/[^\d]/g, ''));
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+        } else if (e.key === 'Escape') {
+          editing.current = false;
+          setText(shown);
+        } else if (navKeys(e, onArrow)) commit();
+      }}
+    />
+  );
+}
+
+export interface DepOption {
+  id: string;
+  label: string;
+  group: string;
+}
+
+/**
+ * "Waits for": Independent, or after another task/sub-task of the project. The allowed list (no loops) is only worked
+ * out when the menu is opened, so a long plan stays fast.
+ */
+export function DependencyCell({
+  value,
+  valueLabel,
+  options,
+  editable,
+  onChange,
+  cellId,
+  onArrow,
+}: NavProps & { value: string | null; valueLabel: string | null; options: () => DepOption[]; editable: boolean; onChange: (id: string | null) => void }) {
+  const [list, setList] = useState<DepOption[] | null>(null);
+  const label = value ? `↳ ${valueLabel ?? '…'}` : '';
+  if (!editable) return <span className="block truncate px-2 text-xs text-muted-strong" title={value ? `Starts after "${valueLabel}" ends` : 'Independent'}>{label}</span>;
+  const load = () => setList((l) => l ?? options());
+  const groups = list ? [...new Set(list.map((o) => o.group))] : [];
+  return (
+    <select
+      data-cell={cellId}
+      className={`cell-input cursor-pointer appearance-none truncate text-xs ${value ? 'text-fg' : 'text-muted'}`}
+      value={value ?? ''}
+      onMouseDown={load}
+      onFocus={load}
+      onBlur={() => setList(null)}
+      onChange={(e) => onChange(e.target.value || null)}
+      onKeyDown={(e) => navKeys(e, onArrow)}
+      aria-label="Waits for"
+      title={value ? `Starts the working day after "${valueLabel}" ends — moves with it` : 'Independent: pick a task to make this one wait for it'}
+    >
+      <option value="">{value ? 'Independent' : '—'}</option>
+      {value && !list?.some((o) => o.id === value) && <option value={value}>{label}</option>}
+      {groups.map((g) => (
+        <optgroup key={g} label={g}>
+          {list!.filter((o) => o.group === g).map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}

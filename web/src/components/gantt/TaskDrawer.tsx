@@ -1,10 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CATEGORIES, CATEGORY_LABEL } from '@shared/categories';
 import type { PlanDto, TaskDto } from '@shared/schemas/plan';
-import { diffDays, formatMedium, istDateOf } from '@shared/schedule/dates';
+import { formatMedium, istDateOf } from '@shared/schedule/dates';
+import { describeQuantities } from '@shared/schedule/rules';
+import { workingDays } from '@shared/schedule/workdays';
 import { useCommittedInput } from '../../lib/autosave';
 import type { usePeople } from '../../lib/people';
-import { CategoryDot } from '../ui';
+import { CategoryDot, Seg } from '../ui';
+import { depLabel, depOptions } from './GanttRow';
 
 interface Props {
   task: TaskDto;
@@ -25,6 +28,10 @@ export function TaskDrawer({ task, plan, editable, people, onPatch, onDelete, on
   const project = plan.projects.find((p) => p.id === task.projectId);
   const title = useCommittedInput(task.title, (v) => v.trim() && v.trim() !== task.title && onPatch({ title: v.trim(), catalogItemId: null }), 0);
   const notes = useCommittedInput(task.notes, (v) => onPatch({ notes: v }), 800);
+  const [choosing, setChoosing] = useState(false);
+  const options = useMemo(() => (choosing || task.dependsOnId ? depOptions(plan.tasks, task) : []), [choosing, task, plan.tasks]);
+  const dependent = !!task.dependsOnId || choosing;
+  const qty = describeQuantities(task.quantities);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) && onClose();
@@ -32,7 +39,7 @@ export function TaskDrawer({ task, plan, editable, people, onPatch, onDelete, on
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const n = task.startDate && task.endDate ? diffDays(task.startDate, task.endDate) + 1 : null;
+  const n = task.startDate && task.endDate ? workingDays(task.startDate, task.endDate) : null;
   return (
     <aside className="absolute inset-y-0 right-0 z-40 flex w-[400px] flex-col border-l border-line-strong bg-surface shadow-2xl" aria-label="Task details">
       <div className="flex items-start gap-2 border-b border-line p-4">
@@ -66,10 +73,17 @@ export function TaskDrawer({ task, plan, editable, people, onPatch, onDelete, on
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="label">Start</span>
-            <input type="date" className="input min-h-9 py-1" value={task.startDate ?? ''} disabled={!editable} onChange={(e) => onPatch({ startDate: e.target.value || null })} />
+            <input
+              type="date"
+              className="input min-h-9 py-1"
+              value={task.startDate ?? ''}
+              disabled={!editable || !!task.dependsOnId}
+              title={task.dependsOnId ? 'Set by what it waits for' : undefined}
+              onChange={(e) => onPatch({ startDate: e.target.value || null })}
+            />
           </label>
           <label className="block">
-            <span className="label">End {n ? <span className="text-muted">· {n} d</span> : null}</span>
+            <span className="label">End {n ? <span className="text-muted">· {n} working d</span> : null}</span>
             <input type="date" className="input min-h-9 py-1" value={task.endDate ?? ''} disabled={!editable} onChange={(e) => onPatch({ endDate: e.target.value || null })} />
           </label>
           <label className="block">
@@ -95,6 +109,83 @@ export function TaskDrawer({ task, plan, editable, people, onPatch, onDelete, on
           </label>
         </div>
         {!task.startDate && parent?.startDate && <p className="text-xs text-muted">No dates of its own: it follows the task's dates ({formatMedium(parent.startDate)} – {formatMedium(parent.endDate!)}).</p>}
+        <div>
+          <span className="label">Waits for</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {editable ? (
+              <Seg
+                label="Independent or dependent"
+                value={dependent ? 'dep' : 'ind'}
+                onChange={(v) => {
+                  if (v === 'ind') {
+                    setChoosing(false);
+                    if (task.dependsOnId) onPatch({ dependsOnId: null });
+                  } else setChoosing(true);
+                }}
+                options={[
+                  { value: 'ind', label: 'Independent' },
+                  { value: 'dep', label: 'Dependent' },
+                ]}
+              />
+            ) : (
+              <span>{task.dependsOnId ? 'Dependent' : 'Independent'}</span>
+            )}
+            {dependent && editable && (
+              <select
+                className="input min-h-9 flex-1 py-1"
+                value={task.dependsOnId ?? ''}
+                autoFocus={choosing && !task.dependsOnId}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  setChoosing(false);
+                  onPatch({ dependsOnId: e.target.value });
+                }}
+                aria-label="The task or sub-task it waits for"
+              >
+                {!task.dependsOnId && <option value="">Choose what it waits for…</option>}
+                {[...new Set(options.map((o) => o.group))].map((g) => (
+                  <optgroup key={g} label={g}>
+                    {options.filter((o) => o.group === g).map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            {task.dependsOnId
+              ? `Starts the working day after “${depLabel(plan.tasks, task.dependsOnId)}” ends, and moves when it moves.`
+              : choosing
+                ? 'Pick the task or sub-task this one waits for. Tasks that would make a loop are not listed.'
+                : 'Its dates are its own.'}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="label">Working days</span>
+            <input
+              type="number"
+              min={1}
+              className="input min-h-9 py-1"
+              key={`${task.plannedDays}|${n}`}
+              defaultValue={n ?? task.plannedDays ?? ''}
+              disabled={!editable || (!parent && children.length > 0)}
+              title={!parent && children.length > 0 ? 'Set by its sub-tasks' : task.startDate ? 'A new length moves the end' : 'Used for its end once it has a start'}
+              onBlur={(e) => {
+                const v = Math.round(Number(e.target.value));
+                if (v >= 1 && v !== (n ?? task.plannedDays)) onPatch({ plannedDays: v });
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            />
+          </label>
+          <div>
+            <span className="label">From the quote</span>
+            <p className="pt-2 tabular-nums">{qty || <span className="text-muted">—</span>}</p>
+          </div>
+        </div>
         <label className="flex items-center gap-2">
           <input type="checkbox" className="h-4 w-4 accent-brand-green" checked={task.done} disabled={!editable} onChange={(e) => onPatch({ done: e.target.checked })} />
           <span className="font-medium">Done</span>

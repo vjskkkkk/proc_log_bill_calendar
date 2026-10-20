@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import type {
   CreateProjectInput,
   CreateTaskInput,
+  ImportQuoteInput,
   PatchProjectInput,
   PatchTaskInput,
   PlanDto,
@@ -11,7 +12,9 @@ import type {
   TaskChanges,
   TaskDto,
 } from '@shared/schemas/plan';
+import { propagate } from '@shared/schedule/deps';
 import { normalisePair } from '@shared/schedule/pair';
+import { endAfter, workingDays } from '@shared/schedule/workdays';
 import { api } from './client';
 import { toast } from '../lib/toast';
 
@@ -74,12 +77,23 @@ function restore(qc: QueryClient, snap: ReturnType<typeof snapshot>) {
 
 const now = () => new Date().toISOString();
 
+/** Re-applies dependencies in one project after a local edit (the same shared/schedule/deps.ts as the Worker). */
+function withPropagation(tasks: TaskDto[], projectId: string): TaskDto[] {
+  const moved = new Map(propagate(tasks.filter((t) => t.projectId === projectId)).map((c) => [c.id, c]));
+  if (!moved.size) return tasks;
+  return tasks.map((t) => {
+    const m = moved.get(t.id);
+    return m ? { ...t, startDate: m.startDate, endDate: m.endDate, plannedDays: workingDays(m.startDate, m.endDate) } : t;
+  });
+}
+
 /** The local guess of a patch (the server answer replaces it). Mirrors worker/services/tasks.ts. */
 function optimisticPatch(tasks: TaskDto[], id: string, p: PatchTaskInput, userId: string | undefined): TaskDto[] {
   const task = tasks.find((t) => t.id === id);
   if (!task) return tasks;
   const out = tasks.map((t) => ({ ...t }));
   const me = out.find((t) => t.id === id)!;
+  if (p.dependsOnId !== undefined) me.dependsOnId = p.dependsOnId;
   if (p.title !== undefined) me.title = p.title;
   if (p.notes !== undefined) me.notes = p.notes;
   if (p.assigneeId !== undefined) me.assigneeId = p.assigneeId;
@@ -89,8 +103,13 @@ function optimisticPatch(tasks: TaskDto[], id: string, p: PatchTaskInput, userId
     out.forEach((t) => t.parentId === id && (t.category = p.category!));
   }
   if (p.startDate !== undefined || p.endDate !== undefined) {
-    Object.assign(me, normalisePair(me, { ...(p.startDate !== undefined ? { startDate: p.startDate } : {}), ...(p.endDate !== undefined ? { endDate: p.endDate } : {}) }));
+    if (me.plannedDays && !me.startDate && p.startDate && p.endDate === undefined) Object.assign(me, { startDate: p.startDate, endDate: endAfter(p.startDate, me.plannedDays) });
+    else Object.assign(me, normalisePair(me, { ...(p.startDate !== undefined ? { startDate: p.startDate } : {}), ...(p.endDate !== undefined ? { endDate: p.endDate } : {}) }));
+  } else if (p.plannedDays && me.startDate) {
+    me.endDate = endAfter(me.startDate, p.plannedDays);
   }
+  if (p.plannedDays !== undefined) me.plannedDays = p.plannedDays;
+  if (me.startDate && me.endDate) me.plannedDays = workingDays(me.startDate, me.endDate);
   if (p.done !== undefined) {
     const mark = (t: TaskDto) => {
       t.done = p.done!;
@@ -111,7 +130,7 @@ function optimisticPatch(tasks: TaskDto[], id: string, p: PatchTaskInput, userId
       }
     }
   }
-  return out;
+  return withPropagation(out, me.projectId);
 }
 
 export function errorText(e: unknown): string {
@@ -145,12 +164,15 @@ export function useCreateTask() {
           doneById: null,
           notes: input.notes ?? '',
           sortOrder,
+          dependsOnId: input.dependsOnId ?? null,
+          plannedDays: input.plannedDays ?? null,
+          quantities: input.quantities ?? {},
           createdById: null,
           updatedById: null,
           createdAt: now(),
           updatedAt: now(),
         };
-        return { ...plan, tasks: [...plan.tasks, t] };
+        return { ...plan, tasks: withPropagation([...plan.tasks, t], input.projectId) };
       });
       return { snap };
     },
@@ -205,7 +227,11 @@ export function useShiftTask() {
       const shift = (d: string | null) => (d ? new Date(Date.parse(`${d}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10) : d);
       eachPlan(qc, (plan) => ({
         ...plan,
-        tasks: plan.tasks.map((t) => (t.id === id || t.parentId === id) && t.startDate ? { ...t, startDate: shift(t.startDate), endDate: shift(t.endDate) } : t),
+        tasks: (() => {
+          const tasks = plan.tasks.map((t) => ((t.id === id || t.parentId === id) && t.startDate ? { ...t, startDate: shift(t.startDate), endDate: shift(t.endDate) } : t));
+          const pid = tasks.find((t) => t.id === id)?.projectId;
+          return pid ? withPropagation(tasks, pid) : tasks;
+        })(),
       }));
       return { snap };
     },
@@ -242,7 +268,22 @@ export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateProjectInput) => api<{ project: ProjectDto; version: string }>('/api/projects', { method: 'POST', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plan'] }),
+    onSuccess: (_r, input) => {
+      qc.invalidateQueries({ queryKey: ['plan'] });
+      if (input.import) qc.invalidateQueries({ queryKey: ['catalog'] });
+    },
+  });
+}
+
+/** Drafts tasks from a quote into an existing project (tasks arrive with the plan refetch). */
+export function useImportQuote(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ImportQuoteInput) => api<{ project: ProjectDto; version: string; taskIds: string[] }>(`/api/projects/${projectId}/import`, { method: 'POST', json: input }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan'] });
+      qc.invalidateQueries({ queryKey: ['catalog'] });
+    },
   });
 }
 

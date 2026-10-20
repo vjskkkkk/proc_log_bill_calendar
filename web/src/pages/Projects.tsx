@@ -7,6 +7,7 @@ import { canEdit, type UserPublic } from '@shared/types';
 import { useDeleteProject, usePatchProject, usePlan } from '../api/plan';
 import { ErrorText, Field, SelectField } from '../components/Field';
 import { NewProjectDialog } from '../components/projects/NewProjectDialog';
+import { ImportQuoteDialog } from '../components/projects/QuoteImport';
 import { BOQ_URL, CRM_URL } from '../components/Shell';
 import { Modal, Seg } from '../components/ui';
 import { useTodayIST } from './Today';
@@ -81,6 +82,7 @@ export default function ProjectsPage({ user }: { user: UserPublic }) {
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ProjectDto | null>(null);
+  const [importing, setImporting] = useState<ProjectDto | null>(null);
   const editable = canEdit(user.role);
 
   const stats = useMemo(() => {
@@ -195,9 +197,19 @@ export default function ProjectsPage({ user }: { user: UserPublic }) {
                   <td className={`p-3 text-right tabular-nums ${s?.overdue ? 'font-semibold text-brand-red' : 'text-muted'}`}>{s?.overdue || '—'}</td>
                   <td className="p-3 whitespace-nowrap text-right space-x-2">
                     {editable && (
-                      <button type="button" className="btn-secondary min-h-8 py-0.5" onClick={() => setEditing(p)}>
-                        Edit
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="text-sm text-brand-purple hover:underline"
+                          onClick={() => setImporting(p)}
+                          title={p.boqQuoteNo ? `Add tasks from quote ${p.boqQuoteNo}` : 'Add tasks from a BOQ quote'}
+                        >
+                          ⇣ From quote
+                        </button>
+                        <button type="button" className="btn-secondary min-h-8 py-0.5" onClick={() => setEditing(p)}>
+                          Edit
+                        </button>
+                      </>
                     )}
                     {user.role === 'admin' && (
                       <button
@@ -226,6 +238,7 @@ export default function ProjectsPage({ user }: { user: UserPublic }) {
       </div>
       {creating && <NewProjectDialog onClose={() => setCreating(false)} />}
       {editing && <EditProjectDialog project={editing} onClose={() => setEditing(null)} />}
+      {importing && <ImportQuoteDialog project={importing} onClose={() => setImporting(null)} />}
     </div>
   );
 }

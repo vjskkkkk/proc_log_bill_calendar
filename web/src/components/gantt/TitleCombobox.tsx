@@ -22,6 +22,8 @@ export interface TitleComboboxProps {
   /** Free text committed (blur, Enter, Tab). Return nothing. */
   onCommit: (text: string) => void;
   onPick: (item: CatalogItemDto) => void;
+  /** "Save to the Task Lists" was chosen (the caller asks how its days work); default: save with one fixed day. */
+  onSaveNew?: (text: string) => void;
   /** Enter after committing (create the next row). `mod` = Ctrl/⌘ held. */
   onEnter?: (mod: boolean) => void;
   onArrow?: (delta: -1 | 1) => void;
@@ -80,13 +82,13 @@ export function TitleCombobox(p: TitleComboboxProps) {
       if (p.parentCatalogId) {
         const own = items.filter((i) => i.parentId === p.parentCatalogId);
         own.forEach((i) => seen.add(i.id));
-        push(own, 'Standard steps of this task');
+        push(own, 'Sub-tasks of this Task List task');
       }
       const sameCat = items.filter((i) => i.parentId && !seen.has(i.id) && (!cat || i.category === cat));
       // De-duplicate identical step names across templates ("Raise PO" appears in several).
       const byName = new Map<string, CatalogItemDto>();
       for (const i of sameCat) if (!byName.has(i.name.toLowerCase())) byName.set(i.name.toLowerCase(), i);
-      push([...byName.values()], cat ? `Other ${CATEGORY_SHORT[cat].toLowerCase()} steps` : 'Other steps');
+      push([...byName.values()], cat ? `Other ${CATEGORY_SHORT[cat].toLowerCase()} sub-tasks` : 'Other sub-tasks');
     }
     if (p.editable && q && !exact) out.push({ kind: 'save', text: text.trim() });
     return out;
@@ -132,6 +134,10 @@ export function TitleCombobox(p: TitleComboboxProps) {
       p.onPick(o.item);
     } else if (o.kind === 'text') {
       commit();
+    } else if (p.onSaveNew) {
+      dirty.current = false;
+      setText(p.clearOnCommit ? '' : p.value);
+      p.onSaveNew(o.text);
     } else {
       const parentId = p.level === 'subtask' ? p.parentCatalogId : null;
       const category = (isCategory(p.category) ? p.category : 'material') as Category;
@@ -140,7 +146,7 @@ export function TitleCombobox(p: TitleComboboxProps) {
         {
           onSuccess: (r) => {
             const item = (r as { item?: CatalogItemDto }).item;
-            toast(`Saved "${o.text}" to the catalogue`, { tone: 'ok' });
+            toast(`Saved "${o.text}" to the Task Lists`, { tone: 'ok' });
             if (item) {
               dirty.current = false;
               setText(p.clearOnCommit ? '' : item.name);
@@ -235,14 +241,14 @@ export function TitleCombobox(p: TitleComboboxProps) {
                           <Highlight text={o.item.name} q={q} />
                         </span>
                         {!o.item.parentId && p.level === 'task' && (
-                          <span className="ml-auto shrink-0 text-xs text-muted">{p.catalog.filter((c) => c.parentId === o.item.id).length} steps</span>
+                          <span className="ml-auto shrink-0 text-xs text-muted">{p.catalog.filter((c) => c.parentId === o.item.id).length} sub-tasks</span>
                         )}
                       </>
                     )}
                     {o.kind === 'save' && (
                       <span className="text-brand-purple">
-                        + Save “{o.text}” to the catalogue
-                        {p.level === 'subtask' && p.parentCatalogId ? ' as a standard step' : isCategory(p.category) ? ` (${CATEGORY_SHORT[p.category]})` : ''}
+                        + Save “{o.text}” to the Task Lists
+                        {p.level === 'subtask' && p.parentCatalogId ? ' as a sub-task' : isCategory(p.category) ? ` (${CATEGORY_SHORT[p.category]})` : ''}
                       </span>
                     )}
                   </button>

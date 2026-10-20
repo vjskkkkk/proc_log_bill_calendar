@@ -4,7 +4,7 @@ export const HEADER_H = 48;
 /** Rows rendered above and below the viewport. */
 export const OVERSCAN = 20;
 
-export type ColKey = 'grip' | 'title' | 'cat' | 'owner' | 'start' | 'end' | 'days' | 'done';
+export type ColKey = 'grip' | 'title' | 'cat' | 'owner' | 'start' | 'end' | 'days' | 'dep' | 'done';
 export interface Col {
   key: ColKey;
   label: string;
@@ -19,6 +19,7 @@ const FULL: Col[] = [
   { key: 'start', label: 'Start', w: 84 },
   { key: 'end', label: 'End', w: 84 },
   { key: 'days', label: 'Days', w: 46 },
+  { key: 'dep', label: 'Waits for', w: 140 },
   { key: 'done', label: '✓', w: 36 },
 ];
 const COMPACT: ColKey[] = ['grip', 'title', 'start', 'end', 'done'];

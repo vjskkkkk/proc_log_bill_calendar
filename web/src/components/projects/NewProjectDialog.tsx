@@ -8,6 +8,7 @@ import { useCreateProject } from '../../api/plan';
 import { ErrorText, Field } from '../Field';
 import { Modal, Seg } from '../ui';
 import { toast } from '../../lib/toast';
+import { QuoteImportReview, toImportInput, useQuoteDraft } from './QuoteImport';
 
 type Source = 'boq' | 'crm' | 'blank';
 
@@ -79,6 +80,11 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   const leads = useCrmLeads(source === 'crm' && !draft, lost);
   const create = useCreateProject();
   const nav = useNavigate();
+  // Picking a quote also drafts the project's Gantt from its lines (docs/PLAN.md "Import from a quote").
+  const [drafting, setDrafting] = useState(true);
+  const quoteDraft = useQuoteDraft(draft?.boqQuoteId ?? null);
+  const lineData = quoteDraft.lines.data;
+  const canDraft = !!draft?.boqQuoteId && !!lineData && !lineData.unavailable && !!quoteDraft.draft && !!quoteDraft.catalog.data;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -92,10 +98,13 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
       boqRootQuoteId: draft.boqRootQuoteId,
       boqQuoteNo: draft.boqQuoteNo,
       crmLeadId: draft.crmLeadId,
+      ...(drafting && canDraft
+        ? { import: toImportInput(quoteDraft.draft!, { id: draft.boqQuoteId!, rootQuoteId: draft.boqRootQuoteId ?? draft.boqQuoteId!, displayNo: draft.boqQuoteNo }, lineData!.lines) }
+        : {}),
     };
     create.mutate(input, {
       onSuccess: ({ project }) => {
-        toast(`Project "${project.name}" created — add its tasks`, { tone: 'ok' });
+        toast(input.import ? `Project "${project.name}" created with its tasks from the quote` : `Project "${project.name}" created — add its tasks`, { tone: 'ok' });
         onClose();
         nav(`/planner?focus=project:${project.id}`);
       },
@@ -116,7 +125,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
               Back
             </button>
             <button type="submit" form="new-project" className="btn-primary" disabled={create.isPending || !draft.name.trim()}>
-              {create.isPending ? 'Creating…' : 'Create project'}
+              {create.isPending ? 'Creating…' : drafting && canDraft ? 'Create project with tasks' : 'Create project'}
             </button>
           </>
         ) : undefined
@@ -218,6 +227,24 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
             <span className="label">Notes</span>
             <textarea className="input min-h-20" value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} maxLength={5000} />
           </label>
+          {draft.boqQuoteId && (
+            <div className="col-span-2 border-t border-line pt-3">
+              <label className="mb-2 flex items-center gap-2 font-medium">
+                <input type="checkbox" className="h-4 w-4 accent-brand-purple" checked={drafting} onChange={(e) => setDrafting(e.target.checked)} />
+                Draft the planner from this quote's line items
+              </label>
+              {drafting && (quoteDraft.lines.isLoading || quoteDraft.catalog.isLoading) && <p className="text-sm text-muted">Reading the quote's line items…</p>}
+              {drafting && lineData?.unavailable && (
+                <div className="rounded-lg border border-brand-yellow/60 bg-brand-yellow/15 p-3 text-sm text-warn-fg">
+                  <b>Can't read the quote's line items right now.</b> {lineData.unavailable}. The project can still be created; add its tasks later with{' '}
+                  <b>⇣ From quote</b> on its planner row.
+                </div>
+              )}
+              {drafting && canDraft && (
+                <QuoteImportReview lines={lineData!.lines} catalog={quoteDraft.catalog.data!} draft={quoteDraft.draft!} onChange={quoteDraft.setDraft} quoteLabel={draft.boqQuoteNo} />
+              )}
+            </div>
+          )}
           <div className="col-span-2">
             <ErrorText error={create.error} />
           </div>

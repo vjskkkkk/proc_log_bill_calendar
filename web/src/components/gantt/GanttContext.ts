@@ -7,6 +7,17 @@ import type { usePeople } from '../../lib/people';
 import type { Col, ColKey } from './layout';
 
 export type Row = GanttRow<ProjectDto, TaskDto>;
+
+/** A task or sub-task typed in that is not in the Task Lists: ask how its days work (NewTaskDialog). */
+export interface NewTaskRequest {
+  name: string;
+  projectId: string;
+  category: string;
+  /** Set for a sub-task. */
+  parent: TaskDto | null;
+  /** Renaming an existing row to something new (else a new row is created). */
+  taskId?: string;
+}
 export type DragMode = 'move' | 'start' | 'end' | 'shift' | 'draw';
 
 export interface GanttActions {
@@ -25,6 +36,8 @@ export interface GanttActions {
   startRowDrag: (e: React.PointerEvent, row: Row) => void;
   /** Remembered default category for new tasks. */
   lastCategory: () => string;
+  askNew: (req: NewTaskRequest) => void;
+  importQuote: (project: ProjectDto) => void;
 }
 
 export interface GanttCtx {
@@ -37,6 +50,8 @@ export interface GanttCtx {
   editable: boolean;
   people: ReturnType<typeof usePeople>;
   catalog: CatalogItemDto[];
+  /** Every task of the open plan (for "Waits for" labels and choices). */
+  tasks: TaskDto[];
   actions: GanttActions;
 }
 

@@ -78,7 +78,7 @@ export function Shell({
             </NavLink>
             <NavLink to="/planner" className={link}>Planner</NavLink>
             <NavLink to="/projects" className={link}>Projects</NavLink>
-            <NavLink to="/catalogue" className={link}>Catalogue</NavLink>
+            <NavLink to="/task-lists" className={link}>Task Lists</NavLink>
             {user.role === 'admin' && <NavLink to="/admin/users" className={link}>Users</NavLink>}
           </nav>
           <div className="ml-auto flex items-center gap-1.5 shrink-0">
