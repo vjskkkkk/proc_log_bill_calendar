@@ -1,6 +1,6 @@
 # Koochie Calendar — specification
 
-Status: v1 built 2026-10-15 (all screens, API, tests); deployment waits on the owner steps in “Deployment”. Audience: whoever (human or Claude) works on this repo next.
+Status: v1 built 2026-10-15 and live; Task Lists, dependencies and drafting from a quote live 2026-10-20. Audience: whoever (human or Claude) works on this repo next.
 
 ## Context
 The team needs one shared planner for back-office work across current projects:
@@ -296,7 +296,7 @@ drawer Independent/Dependent toggle.
 
 **BOQ Maker change**: `GET /api/integration/planner/quotes/:id/lines` — area, code, name, unit, qty, optional,
 category, sub-category; no figures; 404 for drafts/cancelled. Delivered as `docs/boq-maker-quote-lines.patch`
-(tested against BOQ's suite) on top of its unmerged `claude/focused-clarke-f8i3u5` branch.
+(tested against BOQ's suite); merged into BOQ Maker's `main` and deployed 2026-10-20.
 
 **Known limit**: one predecessor per row. A surface installation waits for its material; when it must also wait
 for the civil base to cure, change its Waits for in the planner.
@@ -325,6 +325,8 @@ for the civil base to cure, change its Waits for in the planner.
 - D1 `koochie-calendar`, id `9b5c14d4-313c-4326-8359-f56e4f4e6d6b` (location hint APAC), created 2026-10-15 through the
   Cloudflare connector; its id is in `wrangler.jsonc`.
 - Worker `koochie-calendar` → https://koochie-calendar.vikramjit.workers.dev, built by Workers Builds from `main`.
+  Until 2026-10-20 its production branch was set to another branch, so pushes to `main` did not deploy and every
+  version was uploaded by hand; it is now `main`. Migrations `0004`–`0005` were applied 2026-10-20.
 
 **Migrations** are applied by hand (`npm run db:migrate:remote`), never by the build. The first three were applied on
 2026-10-15 through the connector's D1 query tool, each file's SQL together with its row in wrangler's own

@@ -53,16 +53,18 @@ Every push to `main` deploys through Cloudflare **Workers Builds** (Worker → S
   `INTEGRATION_SECRET` (the same value as on `koochie-boq` and `yourcrm`; it authenticates the project picker's calls).
 - **Migrations are not applied by the build.** When a change adds `migrations/NNNN_*.sql`, run
   `npm run db:migrate:remote` before (or right after) pushing it. `0001`–`0003` are already applied to production
-  (2026-10-15, recorded in `d1_migrations`, so wrangler skips them). `0004_task_lists` and `0005_task_list_seed`
-  (Task Lists) must be applied **before** the code that uses them goes live.
+  (2026-10-15, recorded in `d1_migrations`, so wrangler skips them); `0004`–`0005` (Task Lists) on 2026-10-20.
+  Apply a migration **before** pushing the code that uses it.
+- **Production branch** in Workers Builds must be `main`. If a push does not show up under Worker → Deployments
+  within a few minutes, check that setting; `npm run deploy` uploads by hand.
 - **First run**: the app shows **Create the first admin**; that account becomes `admin`. Later users are created in
   Users with a temporary password and must change it on first sign-in.
 - **Project picker**: BOQ quotes come from `GET /api/integration/planner/quotes` on `koochie-boq` (added for this app);
   CRM leads from `GET /api/integration/leads` on `yourcrm`. Both over service bindings with `X-Integration-Secret`.
 - **Quote import**: line items come from `GET /api/integration/planner/quotes/:id/lines` on `koochie-boq`
   ([`docs/boq-maker-quote-lines.patch`](docs/boq-maker-quote-lines.patch), on top of BOQ Maker's
-  `claude/focused-clarke-f8i3u5` branch). Until BOQ Maker serves it, the import says the lines are unavailable and
-  projects are created without tasks.
+  `claude/focused-clarke-f8i3u5` branch; merged and deployed 2026-10-20). If BOQ Maker cannot answer, the import
+  says the lines are unavailable and projects are created without tasks.
 - **Rollback**: Worker → Deployments → previous version → *Rollback*. D1 has Time Travel
   (`npx wrangler d1 time-travel restore koochie-calendar --timestamp <ISO time>`).
 
